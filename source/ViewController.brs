@@ -29,7 +29,8 @@ Function createViewController() As Object
     controller.getDefaultTheme = vcGetDefaultTheme
 	controller.loadUserTheme = vcLoadUserTheme
 
-	controller.changeUser = vcChangeUser
+	controller.onSignedIn = vcOnSignedIn
+	controller.logout = vcLogout
 	
 	' An object containing information about the current custom theme (if any)
 	controller.themeMetadata = invalid
@@ -49,7 +50,6 @@ Function createViewController() As Object
     controller.CloseScreen = vcCloseScreen
 
     controller.Show = vcShow
-    controller.OnInitialized = vcOnInitialized
     controller.UpdateScreenProperties = vcUpdateScreenProperties
     controller.AddBreadcrumbs = vcAddBreadcrumbs
 
@@ -102,78 +102,143 @@ Function GetViewController()
     return m.ViewController
 End Function
 
-Sub vcOnInitialized()
+Sub doInitialConnection()
 
-	m.ShowInitialScreen()
+	result = ConnectionManager().connectInitial()
+	
+	Debug ("connectInitial returned State of " + firstOf(result.State, ""))
+	Debug ("connectInitial returned ConnectionMode of " + firstOf(result.ConnectionMode, ""))
+	navigateFromConnectionResult(result)
+	
+End Sub
+
+Sub navigateFromConnectionResult(result)
+
+	Debug ("Processing ConnectionResult State of " + result.State)
+	
+	if result.State = "ServerSignIn" then
+	
+		server = result.Servers[0]
+		
+		Debug ("ServerSignIn Id: " + firstOf(server.Id, ""))
+		Debug ("ServerSignIn Name: " + firstOf(server.Name, ""))
+		Debug ("ServerSignIn LocalAddress: " + firstOf(server.LocalAddress, ""))
+		Debug ("ServerSignIn RemoteAddress: " + firstOf(server.RemoteAddress, ""))
+		Debug ("ServerSignIn ManualAddress: " + firstOf(server.ManualAddress, ""))
+		
+		serverUrl = firstOf(server.LocalAddress, "")
+	
+		if result.ConnectionMode = "Remote" then
+			serverUrl = firstOf(server.RemoteAddress, "")
+		else if result.ConnectionMode = "Manual" then
+			serverUrl = firstOf(server.ManualAddress, "")
+		end if
+		
+		showLoginScreen(GetViewController(), serverUrl)
+		
+	else if result.State = "ServerSelection" then
+	
+		showServerListScreen(GetViewController())
+		
+	else if result.State = "SignedIn" then
+	
+		server = result.Servers[0]
+		
+		Debug ("SignedIn Id: " + firstOf(server.Id, ""))
+		Debug ("SignedIn UserId: " + firstOf(server.UserId, ""))
+		Debug ("SignedIn AccessToken: " + firstOf(server.AccessToken, ""))
+		Debug ("SignedIn Name: " + firstOf(server.Name, ""))
+		Debug ("SignedIn LocalAddress: " + firstOf(server.LocalAddress, ""))
+		Debug ("SignedIn RemoteAddress: " + firstOf(server.RemoteAddress, ""))
+		Debug ("ServerSignIn ManualAddress: " + firstOf(server.ManualAddress, ""))
+		
+		serverUrl = firstOf(server.LocalAddress, "")
+	
+		if result.ConnectionMode = "Remote" then
+			serverUrl = firstOf(server.RemoteAddress, "")
+		else if result.ConnectionMode = "Manual" then
+			serverUrl = firstOf(server.ManualAddress, "")
+		end if
+		
+		GetViewController().onSignedIn(server.Id, serverUrl, server.UserId)
+		
+	else if result.State = "ConnectSignIn" then
+	
+		signInContext = {
+			ContentType: "ConnectSignIn"
+		}
+        GetViewController().createScreenForItem(signInContext, 0, ["Connect"], true)
+		
+	end if
+	
 End Sub
 
 Sub vcShowInitialScreen()
 
-	sendWolToAllServers()
+	wizardKey = "wizardcomplete"
+	wizardValue = "4"
 	
-    ' Server Start Up
-    serverStart = serverStartUp()
+	if firstOf(RegRead(wizardKey), "0") <> wizardValue then
 	
-    '** 0 = First Run, 1 = Server List, 2 = Connect to Server
-    if serverStart = 0
-        Print "Server Setup"
-        screen = createServerFirstRunSetupScreen(m)
-		m.InitializeOtherScreen(screen, ["Setup"])
-		screen.Show()
-		
-    else if serverStart = 1
-        Print "Server List"
-        showServerListScreen(m)
-
-    else if serverStart = 2
-        Print "Connecting To Server"
-
-		' Check to see if they have already selected a User
-		' Show home page if so, otherwise show login page.
-		if RegRead("userId") <> invalid And RegRead("userId") <> ""
-
-			if RegRead("prefRememberUser") = "no"
-				RegDelete("userId")
-				DeleteAllAccessTokens()
-				showLoginScreen(m)
-
-			else
-				m.changeUser(RegRead("userId"))
-			end if
-		
-		else
+		item = {
+			ContentType: "Welcome"
+		}
+		screen = m.createScreenForItem([item], 0, ["Welcome"])
 	
-			showLoginScreen(m)
-		end if
-    end if
+		RegWrite(wizardKey, wizardValue)
+	else
+		doInitialConnection()
+	end if
 
 End Sub
 
-Sub showLoginScreen(viewController as Object)
-	screen = CreateLoginScreen(viewController)
+Sub showLoginScreen(viewController as Object, serverUrl as String)
+	screen = CreateLoginScreen(viewController, serverUrl)
 	screen.ScreenName = "Login"
 	viewController.InitializeOtherScreen(screen, ["Please Sign In"])
 	screen.Screen.SetBreadcrumbEnabled(true)
 	screen.Show()
 End Sub
 
-Sub vcChangeUser(userId as String)
+Sub vcOnSignedIn(serverId, serverUrl, localUserId)
 
+	RegWrite("currentServerId", serverId)
+	
+	m.serverUrl = serverUrl
 	postCapabilities()
-			
-    userProfile = getUserProfile(RegRead("userId"))
+	
+    userProfile = getUserProfile(localUserId)
 
     ' If unable to get user profile, delete saved user and redirect to login
     if userProfile = invalid
-        RegDelete("userId")
-		DeleteAllAccessTokens()
-        m.ShowInitialScreen()
+        m.Logout()
+		return
     end if
 
-    GetGlobalAA().AddReplace("user", userProfile)
+    GetGlobalAA().AddReplace("user", userProfile)	
+	
+	if firstOf(RegRead("prefRememberUser"), "yes") <> "yes" and ConnectionManager().isLoggedIntoConnect() = false then
+		ConnectionManager().DeleteServerData(serverId, "UserId")
+	end if
+	
+	while m.screens.Count() > 0
+		m.PopScreen(m.screens[m.screens.Count() - 1])
+	end while
 
     m.Home = m.CreateHomeScreen()
 
+End Sub
+
+Sub vcLogout()
+
+		Debug("Logout")
+		
+		ConnectionManager().logout()
+		
+		RegDelete("currentServerId")
+
+		' For now, until there's a chance to break the initial screen workflow into separate pieces
+		m.ShowInitialScreen()
 End Sub
 
 Function vcCreateHomeScreen()
@@ -208,9 +273,8 @@ Function vcGetDefaultTheme() as Object
         GridScreenLogoOffsetHD_X: "80"
         GridScreenLogoOffsetHD_Y: "30"
         GridScreenOverhangHeightHD: "120"
-        GridScreenFocusBorderHD: vcGetDefaultThemeImageUrl("hd-border-flat-landscape.png")
-        GridScreenBorderOffsetHD: "(-34,-19)"
-        'GridScreenDescriptionImageHD: vcGetDefaultThemeImageUrl("hd-description-background.png")
+        'GridScreenFocusBorderHD: vcGetDefaultThemeImageUrl("hd-border-flat-landscape.png")
+        'GridScreenBorderOffsetHD: "(-34,-19)"
 
         '*** SD Styles ****
 
@@ -228,6 +292,9 @@ Function vcGetDefaultTheme() as Object
         GridScreenLogoOffsetSD_X: "20"
         GridScreenLogoOffsetSD_Y: "20"
         GridScreenOverhangHeightSD: "83"
+		
+		DialogTitleText: "#000000"
+		DialogBodyText: "#333333"
 
         '*** Common Styles ****
 
@@ -371,7 +438,9 @@ Sub vcShow()
 
 	m.loadUserTheme()
 	
-	m.OnInitialized()
+	ConnectionManager().setAppInfo("Roku", getGlobalVar("channelVersion", "Unknown"))
+	
+	m.ShowInitialScreen()
 
     timeout = 0
     while m.screens.Count() > 0
@@ -512,14 +581,14 @@ End Function
 
 Function ProcessSetAudioStreamIndexRequest() As Boolean
    	
-	videoPlayer = VideoPlayer()
+	player = VideoPlayer()
 
-	if videoPlayer <> invalid then
+	if player <> invalid then
 	
 		index = m.request.query["Index"]
 		
 		if index <> invalid and index <> "" then
-			videoPlayer.SetAudioStreamIndex(index.ToInt())
+			player.SetAudioStreamIndex(index.ToInt())
 		end if
         
 	end If
@@ -531,14 +600,14 @@ End Function
 
 Function ProcessSetSubtitleStreamIndexRequest() As Boolean
    	
-	videoPlayer = VideoPlayer()
+	player = VideoPlayer()
 
-	if videoPlayer <> invalid then
+	if player <> invalid then
 	
 		index = m.request.query["Index"]
 		
 		if index <> invalid and index <> "" then
-			videoPlayer.SetSubtitleStreamIndex(index.ToInt())
+			player.SetSubtitleStreamIndex(index.ToInt())
 		end if
         
 	end If
@@ -596,9 +665,28 @@ Function ProcessNavigationSearch() As Boolean
 
 End Function
 
+Function ConvertTicksParamToMs(ticks = invalid) as Integer
+
+	Debug ("Parsing seek param: " + tostr(ticks))
+	
+	ticks = firstOf(ticks, "0")
+	
+	' 1 second = 1000 ms = 10000 ticks
+	while ticks.Len() < 4
+		ticks = ticks + "0"
+	end while
+	
+	ms = ticks.Left(ticks.Len() - 4)
+	
+	return ms.ToInt()
+	
+End function
+
 Function ProcessPlaybackPlayMedia() As Boolean
 
 	ids = m.request.query["ItemIds"].tokenize(",")
+	
+	startPosition = ConvertTicksParamToMs(m.request.query["StartPositionTicks"])
 
 	context = []
 	index = 0
@@ -622,7 +710,15 @@ Function ProcessPlaybackPlayMedia() As Boolean
 		index = index + 1
 	end for
 	
-    GetViewController().CreatePlayerForItem(context, 0, {})
+	startPosition = startPosition / 1000
+	
+	playOptions = {
+		PlayStart: startPosition
+	}
+	
+	Debug("Passing PlayStart to VideoPlayer: " + tostr(playOptions.PlayStart))
+	
+    GetViewController().CreatePlayerForItem(context, 0, playOptions)
 
     m.simpleOK("")
     return true
@@ -631,16 +727,16 @@ End Function
 
 Function ProcessPlaybackSeekTo() As Boolean
 
-    offset = m.request.query["SeekPositionTicks"]
+    offset = ConvertTicksParamToMs(m.request.query["SeekPositionTicks"])
 
     if AudioPlayer().IsPlaying then
-        AudioPlayer().Seek(int(val(offset)))
+        AudioPlayer().Seek(offset)
     else
 
-		videoPlayer = VideoPlayer()
+		player = VideoPlayer()
 
-		if videoPlayer <> invalid then
-            videoPlayer.Seek(int(val(offset)))
+		if player <> invalid then
+            player.Seek(offset)
 		else 
 			
 		end If
@@ -657,14 +753,14 @@ Function ProcessPlaybackSkipNext() As Boolean
         AudioPlayer().Next()
     else
 
-		videoPlayer = VideoPlayer()
+		player = VideoPlayer()
 
-		if videoPlayer <> invalid then
-			videoPlayer.Next()
+		if player <> invalid then
+			player.Next()
 		else 
-			photoPlayer = PhotoPlayer()
-			if photoPlayer <> invalid then 
-				photoPlayer.Next()
+			player = PhotoPlayer()
+			if player <> invalid then 
+				player.Next()
 			else
 				SendEcpCommand("Fwd")
 			end if
@@ -682,14 +778,14 @@ Function ProcessPlaybackSkipPrevious() As Boolean
         AudioPlayer().Prev()
     else
 
-		videoPlayer = VideoPlayer()
+		player = VideoPlayer()
 
-		if videoPlayer <> invalid then
-			videoPlayer.Prev()
+		if player <> invalid then
+			player.Prev()
 		else 
-			photoPlayer = PhotoPlayer()
-			if photoPlayer <> invalid then 
-				photoPlayer.Prev()
+			player = PhotoPlayer()
+			if player <> invalid then 
+				player.Prev()
 			else
 				SendEcpCommand("Rev")
 			end if
@@ -707,9 +803,9 @@ Function ProcessPlaybackStepBack() As Boolean
         AudioPlayer().Seek(-15000, true)
     else
 
-		videoPlayer = VideoPlayer()
+		player = VideoPlayer()
 
-		if videoPlayer <> invalid then
+		if player <> invalid then
 			SendEcpCommand("InstantReplay")
 		else 
 			
@@ -732,7 +828,7 @@ Function ProcessPlaybackStepForward() As Boolean
     end if
 
     if player <> invalid then
-        player.Seek(30000, true)
+        player.Seek(15000, true)
     end if
 
     m.simpleOK("")
@@ -746,13 +842,13 @@ Function ProcessPlaybackPause() As Boolean
         AudioPlayer().Pause()
     else
 
-		videoPlayer = VideoPlayer()
+		player = VideoPlayer()
 
-		if videoPlayer <> invalid then
-			videoPlayer.Pause()
+		if player <> invalid then
+			player.Pause()
 		else 
-			photoPlayer = PhotoPlayer()
-			if photoPlayer <> invalid then photoPlayer.Pause()
+			player = PhotoPlayer()
+			if player <> invalid then player.Pause()
 
 		end If
     end if
@@ -768,14 +864,14 @@ Function ProcessPlaybackPlay() As Boolean
         AudioPlayer().Resume()
     else
 
-		videoPlayer = VideoPlayer()
+		player = VideoPlayer()
 
-		if videoPlayer <> invalid then
-			videoPlayer.Resume()
+		if player <> invalid then
+			player.Resume()
 		else 
-			photoPlayer = PhotoPlayer()
-			if photoPlayer <> invalid then 
-				photoPlayer.Resume()
+			player = PhotoPlayer()
+			if player <> invalid then 
+				player.Resume()
 			else
 				SendEcpCommand("Play")
 			end if
@@ -793,13 +889,13 @@ Function ProcessPlaybackStop() As Boolean
         AudioPlayer().Stop()
     else
 
-		videoPlayer = VideoPlayer()
+		player = VideoPlayer()
 
-		if videoPlayer <> invalid then
-			videoPlayer.Stop()
+		if player <> invalid then
+			player.Stop()
 		else 
-			photoPlayer = PhotoPlayer()
-			if photoPlayer <> invalid then photoPlayer.Stop()
+			player = PhotoPlayer()
+			if player <> invalid then player.Stop()
 
 		end If
     end if
@@ -1045,8 +1141,12 @@ Sub vcPopScreen(screen)
             m.PopScreen(m.screens.Peek())
         end while
         m.screens.Pop()
+		
     else if m.screens.Count() = 0 then
-        m.Home = m.CreateHomeScreen()
+		if screen.goHomeOnPop <> false then
+			m.Home = m.CreateHomeScreen()
+		end if
+		
     else if callActivate then
         newScreen = m.screens.Peek()
         screenName = firstOf(newScreen.ScreenName, type(newScreen.Screen))
@@ -1103,27 +1203,34 @@ Function vcCreateScreenForItem(context, contextIndex, breadcrumbs, show=true) As
         screen = createSearchScreen(m)
         screenName = "Search"
 
-	else if contentType = "SwitchUser" then
+	else if contentType = "Logout" then
 
-        RegDelete("userId")
-		DeleteAllAccessTokens()
-					
-        Debug("Switch User")
+        m.Logout()
 
-		' For now, until there's a chance to break the initial screen workflow into separate pieces
-		m.ShowInitialScreen()
+    else if contentType = "ChangeServer" then
 
-    else if contentType = "TVLibrary" then
-		screen = createTvLibraryScreen(m)
+        screen = createServerListScreen(m)
+		screen.ScreenName = "Server List"
+		m.InitializeOtherScreen(screen, ["Select Server"])
+		screen.Show()
+
+    else if contentType = "Welcome" then
+
+        screen = createServerFirstRunSetupScreen(m)
+        screenName = "Welcome"
+
+	else if contentType = "ConnectSignIn" then
+
+        screen = createConnectSignInScreen(m)
+        screenName = "ConnectSignIn"
+
+	else if contentType = "TVLibrary" then
+		screen = createTvLibraryScreen(m, itemId)
         screenName = "TVLibrary"
 
     else if contentType = "MovieLibrary" then
-		screen = createMovieLibraryScreen(m)
+		screen = createMovieLibraryScreen(m, itemId)
         screenName = "MovieLibrary"
-
-    else if contentType = "TvChannel" then
-		screen = createLiveTvProgramsScreen(m, item)
-		screenName = "TvChannel " + itemId
 
     else if item.MediaType = "Video" or item.MediaType = "Game" or item.MediaType = "Book" or contentType = "ItemPerson" then
 		Debug ("Calling createVideoSpringboardScreen")
@@ -1143,7 +1250,7 @@ Function vcCreateScreenForItem(context, contextIndex, breadcrumbs, show=true) As
 		screenName = "GenreSearch " + item.Title
 
     else if contentType = "MovieAlphabet" then
-		screen = createMovieAlphabetScreen(m, itemId)
+		screen = createMovieAlphabetScreen(m, itemId, item.ParentId)
         screenName = "MovieAlphabet " + itemId
 
     else if contentType = "TvGenre" then
@@ -1151,7 +1258,7 @@ Function vcCreateScreenForItem(context, contextIndex, breadcrumbs, show=true) As
 		screenName = "TvGenre " + item.Title
 
     else if contentType = "TvAlphabet" then
-		screen = createTvAlphabetScreen(m, itemId)
+		screen = createTvAlphabetScreen(m, itemId, item.ParentId)
         screenName = "TvAlphabet " + itemId
 
     else if contentType = "Series" then
@@ -1162,12 +1269,16 @@ Function vcCreateScreenForItem(context, contextIndex, breadcrumbs, show=true) As
 		screen = createLiveTvChannelsScreen(m)
 		screenName = "LiveTVChannels"
 
+    else if contentType = "LiveTVFavoriteGuide" then
+		screen = createLiveTvGuideScreen(m)
+		screenName = "LiveTVFavoriteGuide"
+
     else if contentType = "LiveTVRecordings" then
 		screen = createLiveTvRecordingsScreen(m)
 		screenName = "LiveTVRecordings"
 
     else if contentType = "MusicLibrary" then
-		screen = createMusicLibraryScreen(m)
+		screen = createMusicLibraryScreen(m, itemId)
 		screenName = "MusicLibrary"
 
     else if contentType = "MusicArtist" then
@@ -1178,12 +1289,16 @@ Function vcCreateScreenForItem(context, contextIndex, breadcrumbs, show=true) As
 		screen = createMusicSongsScreen(m, item)
         screenName = "MusicAlbum " + itemId
 		
+    else if contentType = "Playlist" and item.MediaType = "Audio" then
+		screen = createMusicSongsScreen(m, item)
+        screenName = "Playlist " + itemId
+		
     else if contentType = "MusicAlbumAlphabet" then
-		screen = createMusicAlbumsAlphabetScreen(m, itemId)
+		screen = createMusicAlbumsAlphabetScreen(m, itemId, item.ParentId)
 		screenName = "MusicAlbumAlphabet " + itemId
 
     else if contentType = "MusicArtistAlphabet" then
-		screen = createMusicArtistsAlphabetScreen(m, itemId)
+		screen = createMusicArtistsAlphabetScreen(m, itemId, item.ParentId)
 		screenName = "MusicArtistAlphabet " + itemId
 
     else if contentType = "Channel" or contentType = "ChannelFolderItem" then
@@ -1195,7 +1310,14 @@ Function vcCreateScreenForItem(context, contextIndex, breadcrumbs, show=true) As
 		screenName = "Folder " + itemId
 
     else if item.MediaType = "Photo" then
-		ShowPhotoPage(m, itemId)
+	
+        'if right(item.key, 8) = "children" then
+            'screen = createPosterScreen(item, m)
+            'screenName = "Photo Poster"
+        'else
+            screen = createPhotoSpringboardScreen(context, contextIndex, m)
+            screenName = "Photo Springboard"
+        'end if
 
     else if contentType = "RecordingGroup" then
 		screen = createLiveTvRecordingGroupsScreen(m, item)
@@ -1208,6 +1330,7 @@ Function vcCreateScreenForItem(context, contextIndex, breadcrumbs, show=true) As
             AudioPlayer().ContextScreenID = m.nextScreenId
             screen = createAudioSpringboardScreen(AudioPlayer().Context, AudioPlayer().CurIndex, m)
             screenName = "Now Playing"
+			breadcrumbs = [screenName, ""]
         end if
         if screen = invalid then return invalid
     else if item.MediaType = "Audio" then
@@ -1327,14 +1450,129 @@ Function vcCreateVideoPlayer(context, contextIndex, playOptions, show=true)
     return screen
 End Function
 
+Function GetContextForPlayback(context, contextIndex) as Object
+
+	obj = {
+		context: context
+		contextIndex: contextIndex
+	}
+	
+	item = context[contextIndex]
+	
+	itemType = firstOf(item.ContentType, item.Type)
+	Debug ("GetContextForPlayback item.ContentType=" + itemType)
+	
+    if itemType = "MusicArtist" then
+	
+		' URL
+		url = GetServerBaseUrl() + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?IncludeItemTypes=Audio&Recursive=true&SortBy=SortName&Artists=" + HttpEncode(item.Name) + "&ImageTypeLimit=1"
+
+		' Prepare Request
+		request = HttpRequest(url)
+		request.ContentType("json")
+		request.AddAuthorization()
+
+		' Execute Request
+		response = request.GetToStringWithTimeout(10)
+		
+		if response <> invalid
+			obj.context= parseItemsResponse(response, 0, "two-row-flat-landscape-custom").Items
+			obj.contextIndex = 0
+		end if
+		
+    else if itemType = "MusicAlbum" then
+	
+		' URL
+		url = GetServerBaseUrl() + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?IncludeItemTypes=Audio&Recursive=true&SortBy=SortName&ParentId=" + HttpEncode(item.Id) + "&ImageTypeLimit=1"
+
+		' Prepare Request
+		request = HttpRequest(url)
+		request.ContentType("json")
+		request.AddAuthorization()
+
+		' Execute Request
+		response = request.GetToStringWithTimeout(10)
+		if response <> invalid
+
+			obj.context= parseItemsResponse(response, 0, "two-row-flat-landscape-custom").Items
+			obj.contextIndex = 0
+		end if
+		
+    else if itemType = "PhotoAlbum" then
+	
+		' URL
+		url = GetServerBaseUrl() + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?IncludeItemTypes=Photo&SortBy=SortName&ParentId=" + HttpEncode(item.Id) + "&ImageTypeLimit=1"
+
+		' Prepare Request
+		request = HttpRequest(url)
+		request.ContentType("json")
+		request.AddAuthorization()
+
+		' Execute Request
+		response = request.GetToStringWithTimeout(10)
+		if response <> invalid
+
+			obj.context=  parseItemsResponse(response, 0, "two-row-flat-landscape-custom").Items
+			obj.contextIndex = 0
+		end if
+		
+    else if itemType = "Playlist" then
+	
+		' URL
+		url = GetServerBaseUrl() + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?ParentId=" + HttpEncode(item.Id) + "&ImageTypeLimit=1"
+
+		' Prepare Request
+		request = HttpRequest(url)
+		request.ContentType("json")
+		request.AddAuthorization()
+
+		' Execute Request
+		response = request.GetToStringWithTimeout(10)
+		if response <> invalid
+
+			obj.context=  parseItemsResponse(response, 0, "two-row-flat-landscape-custom").Items
+			obj.contextIndex = 0
+		end if	
+		
+    else if itemType = "MusicGenre" then
+	
+		' URL
+		url = GetServerBaseUrl() + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?IncludeItemTypes=Audio&Recursive=true&SortBy=SortName&Genres=" + HttpEncode(item.Name)
+
+		' Prepare Request
+		request = HttpRequest(url)
+		request.ContentType("json")
+		request.AddAuthorization()
+
+		' Execute Request
+		response = request.GetToStringWithTimeout(10)
+		if response <> invalid
+
+			obj.context=  parseItemsResponse(response, 0, "two-row-flat-landscape-custom").Items
+			obj.contextIndex = 0
+		end if
+	end if	
+		
+	return obj
+	
+End Function
+
 Function vcCreatePlayerForItem(context, contextIndex, playOptions)
+
+	obj = GetContextForPlayback(context, contextIndex)
+	context = obj.context
+	contextIndex = obj.contextIndex
+	
     item = context[contextIndex]
 
     if item.MediaType = "Photo" then
         return m.CreatePhotoPlayer(context, contextIndex)
     else if item.MediaType = "Audio" then
         AudioPlayer().Stop()
-        return m.CreateScreenForItem(context, contextIndex, invalid)
+        screen = m.CreateScreenForItem(context, contextIndex, invalid)
+		
+		if screen <> invalid and screen.playFromIndex <> invalid then screen.playFromIndex(contextIndex)
+		return screen
     else if item.MediaType = "Video" then
 	
 		return m.CreateVideoPlayer(context, contextIndex, playOptions)
@@ -1403,7 +1641,7 @@ Sub vcAddBreadcrumbs(screen, breadcrumbs)
         if count >= 2 then
             breadcrumbs = [m.breadcrumbs[count-2], m.breadcrumbs[count-1]]
         else
-            breadcrumbs = m.breadcrumbs[0]
+            breadcrumbs = [m.breadcrumbs[0]]
         end if
 
         m.breadcrumbs.Append(breadcrumbs)
@@ -1418,6 +1656,8 @@ End Sub
 
 Sub vcUpdateScreenProperties(screen)
 
+	bread2 = invalid 
+	
     if screen.NumBreadcrumbs <> 0 then
         count = m.breadcrumbs.Count()
         if count >= 2 then
@@ -1449,11 +1689,10 @@ Sub vcUpdateScreenProperties(screen)
             screen.Screen.SetBreadcrumbText(bread1, bread2)
         end if
     else if screenType = "roListScreen" then
-        if enableBreadcrumbs then
-			screen.Screen.SetBreadcrumbText(bread1, bread2)
-		else
-            screen.Screen.SetTitle(bread2)
-        end if
+	
+		' SetBreadcrumbText is not available on legacy devices
+		if bread2 <> invalid then screen.Screen.SetTitle(bread2)
+		
     else if screenType = "roListScreen" OR screenType = "roKeyboardScreen" OR screenType = "roParagraphScreen" then
         if enableBreadcrumbs then
             screen.Screen.SetTitle(bread2)

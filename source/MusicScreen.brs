@@ -2,7 +2,7 @@
 '** createMusicLibraryScreen
 '**********************************************************
 
-Function createMusicLibraryScreen(viewController as Object) As Object
+Function createMusicLibraryScreen(viewController as Object, parentId as String) As Object
 
 	names = ["Albums", "Artists", "Jump Into Albums", "Jump Into Artists", "Genres"]
 	keys = ["0", "1", "2", "3", "4"]
@@ -11,6 +11,7 @@ Function createMusicLibraryScreen(viewController as Object) As Object
 	loader.getUrl = getMusicLibraryRowScreenUrl
 	loader.parsePagedResult = parseMusicLibraryScreenResult
 	loader.getLocalData = getMusicLibraryScreenLocalData
+	loader.parentId = parentId
 
     screen = createPaginatedGridScreen(viewController, names, keys, loader, "two-row-flat-landscape-custom")
 
@@ -20,9 +21,9 @@ End Function
 Function getMusicLibraryScreenLocalData(row as Integer, id as String, startItem as Integer, count as Integer) as Object
 
 	if row = 2 then
-		return getAlphabetList("MusicAlbumAlphabet")
+		return getAlphabetList("MusicAlbumAlphabet", m.parentId)
 	else if row = 3 then
-		return getAlphabetList("MusicArtistAlphabet")
+		return getAlphabetList("MusicArtistAlphabet", m.parentId)
 	end If
 
     return invalid
@@ -44,16 +45,20 @@ Function getMusicLibraryRowScreenUrl(row as Integer, id as String) as String
 			IncludeItemTypes: "MusicAlbum"
 			fields: "Overview"
 			sortby: "AlbumArtist,SortName"
-			sortorder: "Ascending"
+			sortorder: "Ascending",
+			parentId: m.parentId,
+			ImageTypeLimit: "1"
 		}
 	else if row = 1
-		url = url  + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?recursive=true"
+		url = url  + "/Artists/AlbumArtists?recursive=true"
 
 		query = {
-			IncludeItemTypes: "MusicArtist"
 			fields: "Overview"
 			sortby: "SortName"
-			sortorder: "Ascending"
+			sortorder: "Ascending",
+			parentId: m.parentId,
+			UserId: getGlobalVar("user").Id,
+			ImageTypeLimit: "1"
 		}
 	else if row = 2
 		' Music album alphabet - should never get in here
@@ -66,7 +71,8 @@ Function getMusicLibraryRowScreenUrl(row as Integer, id as String) as String
 			userid: getGlobalVar("user").Id
 			recursive: "true"
 			sortby: "SortName"
-			sortorder: "Ascending"
+			sortorder: "Ascending",
+			parentId: m.parentId
 		}
 	end If
 
@@ -127,7 +133,7 @@ End Function
 '** createMusicArtistsAlphabetScreen
 '**********************************************************
 
-Function createMusicArtistsAlphabetScreen(viewController as Object, letter As String) As Object
+Function createMusicArtistsAlphabetScreen(viewController as Object, letter As String, parentId = invalid) As Object
 
 	' Dummy up an item
 	item = CreateObject("roAssociativeArray")
@@ -135,6 +141,7 @@ Function createMusicArtistsAlphabetScreen(viewController as Object, letter As St
 
     screen = CreatePosterScreen(viewController, item, "arced-square")
 
+	screen.ParentId = parentId
 	screen.GetDataContainer = getMusicArtistsAlphabetDataContainer
 
     return screen
@@ -153,6 +160,8 @@ Function getMusicArtistsAlphabetDataContainer(viewController as Object, item as 
             NameStartsWith: letter
         }
     end if
+	
+	if m.ParentId <> invalid then filters.ParentId = m.ParentId
 
     musicData = getMusicArtists(invalid, invalid, filters)
     if musicData = invalid
@@ -173,7 +182,7 @@ End Function
 '** createMusicAlbumsAlphabetScreen
 '**********************************************************
 
-Function createMusicAlbumsAlphabetScreen(viewController as Object, letter As String) As Object
+Function createMusicAlbumsAlphabetScreen(viewController as Object, letter As String, parentId = invalid) As Object
 
 	' Dummy up an item
 	item = CreateObject("roAssociativeArray")
@@ -181,6 +190,7 @@ Function createMusicAlbumsAlphabetScreen(viewController as Object, letter As Str
 
     screen = CreatePosterScreen(viewController, item, "arced-square")
 
+	screen.ParentId = parentId
 	screen.GetDataContainer = getMusicAlbumsAlphabetDataContainer
 
     return screen
@@ -200,6 +210,8 @@ Function getMusicAlbumsAlphabetDataContainer(viewController as Object, item as O
             NameStartsWith: letter
         }
     end if
+	
+	if m.ParentId <> invalid then filters.ParentId = m.ParentId
 
     musicData = getMusicAlbums(invalid, invalid, filters)
     if musicData = invalid
@@ -294,10 +306,21 @@ Function createMusicSongsScreen(viewController as Object, artistInfo As Object) 
 	screen.audioItems = musicData.Items
 
 	screen.IsShuffled = false
+	
+	screen.playFromIndex = musicSongsPlayFromIndex
 
     return screen
 
 End Function
+
+Sub musicSongsPlayFromIndex(index)
+
+	player = AudioPlayer()
+	
+	player.SetContextFromItems(m.audioItems, index, m, true)
+	player.Play()
+				
+End Sub
 
 Function musicSongsHandleMessage(msg) As Boolean
     handled = false

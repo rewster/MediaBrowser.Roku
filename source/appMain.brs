@@ -12,8 +12,10 @@ Sub Main()
     viewController = createViewController()
 	
 	' Uncomment this as needed to debug startup sequence
-	'RegDelete("serverActive")
-
+	RegDelete("activeServerId")
+	RegDelete("serverList1")
+	RegDelete("userId")
+	
 	'RunScreenSaver()
 	viewController.Show()
 
@@ -91,6 +93,7 @@ Sub initGlobals()
         models["3420X"] = "Roku Streaming Stick"
         models["3500R"] = "Roku Streaming Stick (2014)"
         models["4200X"] = "Roku 3"
+        models["4200R"] = "Roku 3"
 
         If models.DoesExist(modelNumber) Then
             modelName = models[modelNumber]
@@ -103,7 +106,8 @@ Sub initGlobals()
     GetGlobalAA().AddReplace("rokuModelName", modelName)
 
     ' Check for DTS passthrough support
-    if modelNumber = "4200X"
+    ' roku 3 with firmware 5.1 and higher
+    if left(modelNumber,4) = "4200" and major >= 5 and minor >= 1
         GetGlobalAA().AddReplace("audioDTS", true)
     else
         GetGlobalAA().AddReplace("audioDTS", false)
@@ -114,6 +118,20 @@ Sub initGlobals()
         GetGlobalAA().AddReplace("legacyDevice", true)
     else
         GetGlobalAA().AddReplace("legacyDevice", false)
+    end if
+
+    ' Support for ReFrames seems mixed. These numbers could be wrong, but
+    ' there are reports that the Roku 1 can't handle more than 5 ReFrames,
+    ' and testing has shown that the video is black beyond that point. The
+    ' Roku 2 has been observed to play all the way up to 16 ReFrames, but
+    ' on at least one test video there were noticeable artifacts as the
+    ' number increased, starting with 8.
+    if left(modelNumber,4) = "4200" and major >=5 then
+	GetGlobalAA().AddReplace("maxRefFrames", 12)
+    elseif major >= 4 then
+        GetGlobalAA().AddReplace("maxRefFrames", 8)
+    else
+        GetGlobalAA().AddReplace("maxRefFrames", 5)
     end if
 
     ' Check if HDTV screen
@@ -137,9 +155,8 @@ Sub initGlobals()
     GetGlobalAA().AddReplace("playsAnamorphic", playsAnamorphic)
 
 	SupportsSurroundSound()
-
+	
 End Sub
-
 
 '*************************************************************
 '** Get a variable from the Global Array
@@ -191,4 +208,31 @@ Function CheckMinimumVersion(versionArr, requiredVersion) As Boolean
         index = index + 1
     next
     return true
+End Function
+
+Function IsActiveSupporter() as Boolean
+
+	' URL
+    url = GetServerBaseUrl() + "/Plugins/SecurityInfo"
+
+    ' Prepare Request
+    request = HttpRequest(url)
+    request.ContentType("json")
+    request.AddAuthorization()
+
+    ' Execute Request
+    response = request.GetToStringWithTimeout(10)
+	
+	if response <> invalid then
+		
+		userInfo = ParseJSON(response)
+		
+		if userInfo <> invalid then
+			return userInfo.IsMBSupporter
+		end if
+	
+	end if
+	
+	return false
+	
 End Function

@@ -1,49 +1,13 @@
 '******************************************************
-' Get Media Item Counts
-'******************************************************
-
-Function getMediaItemCounts() As Object
-    ' URL
-    url = GetServerBaseUrl() + "/Items/Counts"
-
-    ' Query
-    query = {
-        userid: getGlobalVar("user").Id
-    }
-
-    ' Prepare Request
-    request = HttpRequest(url)
-    request.ContentType("json")
-    request.AddAuthorization()
-    request.BuildQuery(query)
-
-    ' Execute Request
-    response = request.GetToStringWithTimeout(10)
-    if response <> invalid
-
-        metaData = ParseJSON(response)
-
-        if metaData = invalid
-            Debug("Error Parsing Media Item Counts")
-            return invalid
-        end if
-
-        return metaData
-    else
-        Debug("Failed To Get Media Item Counts")
-    end if
-
-    return invalid
-End Function
-
-
-'******************************************************
 ' getPublicUserProfiles
 '******************************************************
 
-Function getPublicUserProfiles() As Object
+Function getPublicUserProfiles(serverUrl as String) As Object
+
+	Debug("getPublicUserProfiles url: " + serverUrl)
+	
     ' URL
-    url = GetServerBaseUrl() + "/Users/Public"
+    url = GetServerBaseUrl(serverUrl) + "/Users/Public"
 
     ' Prepare Request
     request = HttpRequest(url)
@@ -63,7 +27,7 @@ Function getPublicUserProfiles() As Object
         end if
 
         for each i in jsonObj
-            metaData = parseUser(i)
+            metaData = parseUser(i, serverUrl)
 
             contentList.push( metaData )
         end for
@@ -111,7 +75,7 @@ Function getUserProfile(userId As String) As Object
     return invalid
 End Function
 
-Function parseUser(i as Object) as Object
+Function parseUser(i as Object, serverUrl = "") as Object
 
     metaData = {}
 
@@ -133,7 +97,7 @@ Function parseUser(i as Object) as Object
 
     ' Check if Item has Image, otherwise use default
     if i.PrimaryImageTag <> "" And i.PrimaryImageTag <> invalid
-        imageUrl = GetServerBaseUrl() + "/Users/" + HttpEncode(i.Id) + "/Images/Primary/0"
+        imageUrl = GetServerBaseUrl(serverUrl) + "/Users/" + HttpEncode(i.Id) + "/Images/Primary/0"
 
         metaData.HDPosterUrl = BuildImage(imageUrl, sizes.hdWidth, sizes.hdHeight, i.PrimaryImageTag, false, 0)
         metaData.SDPosterUrl = BuildImage(imageUrl, sizes.sdWidth, sizes.sdHeight, i.PrimaryImageTag, false, 0)
@@ -153,7 +117,7 @@ End Function
 '** Get Alphabetical List
 '**********************************************************
 
-Function getAlphabetList(contentType As String) As Object
+Function getAlphabetList(contentType As String, parentId = invalid) As Object
 
     ' Set the buttons
     buttons = []
@@ -168,6 +132,10 @@ Function getAlphabetList(contentType As String) As Object
             HDPosterUrl: GetViewController().getThemeImageUrl("letter_" + cLetter + ".jpg")
             SDPosterUrl: GetViewController().getThemeImageUrl("letter_" + cLetter + ".jpg")
         }
+		
+		if parentId <> invalid then
+			letterButton.ParentId = parentId
+		end if
 
         buttons.Push( letterButton )
     end for
@@ -227,6 +195,7 @@ Function getMetadataFromServerItem(i as Object, imageType as Integer, primaryIma
     metaData.ContentType = getContentType(i, mode)
 
     metaData.Id = i.Id
+	metaData.ServerId = i.ServerId
 
     metaData.Title = getTitle(i)
 
@@ -235,6 +204,7 @@ Function getMetadataFromServerItem(i as Object, imageType as Integer, primaryIma
 	metaData.PrimaryImageAspectRatio = i.PrimaryImageAspectRatio
 	metaData.MediaSources = i.MediaSources
 	metaData.People = i.People
+	metaData.CollectionType = i.CollectionType
 	
 	metaData.ChannelId = i.ChannelId
 	metaData.StartDate = i.StartDate
@@ -527,6 +497,10 @@ Function getMetadataFromServerItem(i as Object, imageType as Integer, primaryIma
 	
 	FillChaptersFromItem(metaData, i)
 	FillCategoriesFromGenres(metaData, i)
+	
+	if i.MediaType = "Photo" then
+		FillPhotoInfo(metaData, i)
+	end if
 
     metaData.LocationType = LCase(firstOf(i.LocationType, "FileSystem"))
 
@@ -548,6 +522,27 @@ Function getMetadataFromServerItem(i as Object, imageType as Integer, primaryIma
 	return metaData
 	
 End Function
+
+Sub FillPhotoInfo(metaData as Object, item as Object)
+
+	if item.ImageTags <> invalid And item.ImageTags.Primary <> "" And item.ImageTags.Primary <> invalid
+				
+		imageUrl = GetServerBaseUrl() + "/Items/" + HttpEncode(item.Id) + "/Images/Primary/0"
+
+		metaData.Url = BuildImage(imageUrl, invalid, invalid, item.ImageTags.Primary, false, 0, 0)
+		
+		metaData.Url = imageUrl
+		
+	end if
+	
+	metaData.TextOverlayUL = firstOf(item.Album, "")
+	
+	' Handled in PhotoPlayer
+	'metaData.TextOverlayUR = "3 of 20"
+	
+	metaData.TextOverlayBody = metaData.Title
+
+End Sub
 
 Sub FillActorsFromItem(metaData as Object, item as Object)
 
@@ -842,9 +837,21 @@ Function getShortDescriptionLine2(i as Object, mode as String) as String
             
         return episodeInfo + firstOf(i.EpisodeTitle, "")
 
+	else if i.Type = "TvChannel" Then
+
+        if i.CurrentProgram <> invalid and i.CurrentProgram.Name <> invalid
+            return i.CurrentProgram.Name
+        end if
+			
 	else if i.Type = "Program" Then
 
-        return firstOf(i.EpisodeTitle, "")
+		programTime = ""
+		
+		if i.StartDate <> invalid And i.StartDate <> "" and i.EndDate <> invalid And i.EndDate <> ""
+			programTime = getProgramDisplayTime(i.StartDate) + " - " + getProgramDisplayTime(i.EndDate)
+		end if
+
+        return programTime
 
 	else if i.MediaType = "Video" Then
 

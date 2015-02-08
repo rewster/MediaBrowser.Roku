@@ -95,7 +95,7 @@ Function audioPlayerHandleMessage(msg) As Boolean
             if m.ContextScreenID <> invalid then
                 amountPlayed = m.GetPlaybackProgress()
                 Debug("Sending analytics event, appear to have listened to audio for " + tostr(amountPlayed) + " seconds")
-                'AnalyticsTracker().TrackEvent("Playback", firstOf(item.ContentType, "track"), item.mediaContainerIdentifier, amountPlayed)
+                
 				m.reportPlayback("stop")
             end if
 
@@ -138,10 +138,12 @@ Function audioPlayerHandleMessage(msg) As Boolean
 
         else if msg.isFullResult() then
             Debug("Playback of entire audio list finished")
+			m.reportPlayback("stop")
             m.Stop()
 
         else if msg.isPartialResult() then
             Debug("isPartialResult")
+			m.reportPlayback("stop")
 
         else if msg.isPaused() then
             Debug("Stream paused by user")
@@ -212,6 +214,7 @@ End Sub
 Sub audioPlayerStop()
     if m.Context <> invalid then
         m.player.Stop()
+		m.reportPlayback("stop")
         m.player.SetNext(m.CurIndex)
         m.IsPlaying = false
         m.IsPaused = false
@@ -228,6 +231,8 @@ Sub audioPlayerSeek(offset, relative=false)
 
         if offset < 0 then offset = 0
     end if
+	
+	Debug ("AudioPlayer seeking to " + tostr(offset))
 
     if m.IsPlaying then
         m.playbackOffset = int(offset / 1000)

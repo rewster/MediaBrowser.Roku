@@ -7,34 +7,17 @@ Function createHomeScreen(viewController as Object) as Object
 	names = []
 	keys = []
 	
-	If RegRead("prefCollectionsFirstRow") = "yes"
-        names.push("Media Folders")
-		keys.push("folders")
-    End If
-    
-    names.push("Movies")
-	keys.push("movies")
+	views = getUserViews()
 	
-	names.push("TV")
-	keys.push("tv")
+	for each view in views
 	
-	if isLiveTvEnabled() then
-		names.push("Live TV")
-		keys.push("livetv")
-	end if    
+		names.push(view.Title)
 		
-	if isMusicEnabled() then
-		names.push("Music")
-		keys.push("music")
-	end if    		
-	
-	names.push("Channels")
-	keys.push("channels")
-	
-	If RegRead("prefCollectionsFirstRow") <> "yes"
-        names.push("Media Folders")
-		keys.push("folders")
-    End If
+		key = view.CollectionType + "|" + view.Id + "|" + firstOf(view.HDPosterUrl, "")
+		
+		keys.push(key)
+		
+	end for
 	
 	names.push("Options")
 	keys.push("options")
@@ -54,25 +37,69 @@ Function createHomeScreen(viewController as Object) as Object
     screen.Activate = homeScreenActivate
 
 	screen.refreshBreadcrumb = homeRefreshBreadcrumb
-	
-	screen.baseShow = screen.Show
-	screen.Show = showHomeScreen
 
     screen.clockTimer = createTimer()
     screen.clockTimer.Name = "clock"
     screen.clockTimer.SetDuration(20000, true) ' A little lag is fine here
     viewController.AddTimer(screen.clockTimer, screen)
 	
-	sendWolToAllServers(m)
+	ConnectionManager().sendWolToAllServers(m)
 
     screen.SetDescriptionVisible(false)
 
 	return screen
 End Function
 
+Function getUserViews() as Object
+
+	views = []
+	
+	if getGlobalVar("user") = invalid then return views
+	
+	url = GetServerBaseUrl() + "/Users/" + getGlobalVar("user").Id + "/Views?fields=PrimaryImageAspectRatio"
+	
+    request = HttpRequest(url)
+    request.ContentType("json")
+    request.AddAuthorization()
+
+    response = request.GetToStringWithTimeout(10)
+    if response <> invalid
+	
+        result = parseItemsResponse(response, 0, "two-row-flat-landscape-custom")
+
+		for each i in result.Items
+		
+			viewType = firstOf(i.CollectionType, "")
+			
+			' Filter out unsupported views
+			if viewType = "movies" or viewType = "music" or viewType = "tvshows" or viewType = "livetv" or viewType = "channels" or viewType = "folders" or viewType = "playlists" then
+				views.push(i)
+			
+			' Treat all other types as folders for now
+			else if i.ContentType <> "Channel" then
+				viewType = "folders"
+				views.push(i)
+			end if
+		
+			' Normalize this
+			i.CollectionType = viewType
+			
+		end for
+		
+	end if	
+	
+	return views
+
+End Function
+
 Function getHomeScreenLocalData(row as Integer, id as String, startItem as Integer, count as Integer) as Object
 
 	viewController = GetViewController()
+	
+	parts = id.tokenize("|")
+	id = parts[0]
+	parentId = firstOf(parts[1], "")
+	viewTileImageUrl = parts[2]
 	
 	if id = "options" then
 		return GetOptionButtons(viewController)
@@ -84,17 +111,17 @@ Function getHomeScreenLocalData(row as Integer, id as String, startItem as Integ
 		' Jump list
 		if movieToggle = 3 then
 		
-			return GetMovieButtons(viewController, movieToggle)
+			return GetMovieButtons(viewController, movieToggle, parentId, viewTileImageUrl)
 		end if
 		
-	else if id = "tv" 
+	else if id = "tvshows" 
 	
 		tvToggle  = (firstOf(RegUserRead("tvToggle"), "1")).ToInt()
 		
 		' Jump list
 		if tvToggle = 3 then
 		
-			return GetTVButtons(viewController, tvToggle)
+			return GetTVButtons(viewController, tvToggle, parentId, viewTileImageUrl)
 		end if
 		
 	end If
@@ -105,7 +132,11 @@ End Function
 
 Function getHomeScreenRowUrl(row as Integer, id as String) as String
 
-    url = GetServerBaseUrl()
+    parts = id.tokenize("|")
+	id = parts[0]
+	parentId = firstOf(parts[1], "")
+	
+	url = GetServerBaseUrl()
 
     query = {}
 
@@ -113,7 +144,11 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 	
 		url = url  + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?sortby=sortname"
 		query.AddReplace("Fields", "PrimaryImageAspectRatio")
-
+		
+	else if id = "playlists"
+	
+		url = url  + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?sortby=sortname"
+		
 	else if id = "channels"
 	
 		url = url  + "/Channels?userid=" + HttpEncode(getGlobalVar("user").Id)
@@ -130,7 +165,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 			query = {
 				ItemLimit: "20"
 				CategoryLimit: "1"
-				fields: "PrimaryImageAspectRatio"
+				fields: "PrimaryImageAspectRatio",
+				ImageTypeLimit: "1"
 			}
 			
 		' Latest
@@ -143,7 +179,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				fields: "PrimaryImageAspectRatio"
 				sortby: "DateCreated"
 				sortorder: "Descending"
-				filters: "IsUnplayed"
+				filters: "IsUnplayed",
+				ImageTypeLimit: "1"
 			}
 			
 		' Resume
@@ -155,7 +192,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				fields: "PrimaryImageAspectRatio"
 				sortby: "DatePlayed"
 				sortorder: "Descending"
-				filters: "IsResumable"
+				filters: "IsResumable",
+				ImageTypeLimit: "1"
 			}
 			
 		' Favorites
@@ -167,7 +205,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				fields: "PrimaryImageAspectRatio"
 				sortby: "SortName"
 				sortorder: "Ascending"
-				filters: "IsFavorite"
+				filters: "IsFavorite",
+				ImageTypeLimit: "1"
 			}
 			
 		' Genres
@@ -184,7 +223,7 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 			
 		end if		
 		
-	else if id = "tv"
+	else if id = "tvshows"
 	
 		tvToggle  = (firstOf(RegUserRead("tvToggle"), "1")).ToInt()
 
@@ -194,7 +233,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 			url = url + "/Shows/NextUp?userId=" + HttpEncode(getGlobalVar("user").Id)
 			
 			query = {
-				fields: "PrimaryImageAspectRatio,Overview"
+				fields: "PrimaryImageAspectRatio,Overview",
+				ImageTypeLimit: "1"
 			}
 			
 		' Latest
@@ -207,7 +247,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				fields: "PrimaryImageAspectRatio"
 				sortby: "DateCreated"
 				sortorder: "Descending"
-				filters: "IsUnplayed"
+				filters: "IsUnplayed",
+				ImageTypeLimit: "1"
 			}
 			
 		' Resume
@@ -219,7 +260,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				fields: "PrimaryImageAspectRatio"
 				sortby: "DatePlayed"
 				sortorder: "Descending"
-				filters: "IsResumable"
+				filters: "IsResumable",
+				ImageTypeLimit: "1"
 			}
 			
 		' Favorites
@@ -231,7 +273,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				fields: "PrimaryImageAspectRatio"
 				sortby: "SortName"
 				sortorder: "Ascending"
-				filters: "IsFavorite"
+				filters: "IsFavorite",
+				ImageTypeLimit: "1"
 			}
 			
 		' Genres
@@ -243,7 +286,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				includeitemtypes: "Series"
 				fields: "PrimaryImageAspectRatio"
 				sortby: "SortName"
-				sortorder: "Ascending"
+				sortorder: "Ascending",
+				ImageTypeLimit: "1"
 			}
 			
 		end if		
@@ -290,7 +334,8 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				recursive: "true"
 				fields: "PrimaryImageAspectRatio"
 				sortby: "DateCreated"
-				sortorder: "Descending"
+				sortorder: "Descending",
+				ImageTypeLimit: "1"
 			}
 		
 		else
@@ -301,13 +346,19 @@ Function getHomeScreenRowUrl(row as Integer, id as String) as String
 				recursive: "true"
 				fields: "PrimaryImageAspectRatio"
 				sortby: "DateCreated"
-				sortorder: "Descending"
+				sortorder: "Descending",
+				ImageTypeLimit: "1"
 			}
 		
 			
 		end if		
 		
 	end If
+	
+	if id <> "channels" and id <> "livetv" and parentId <> "" then
+		
+		query.AddReplace("ParentId", parentId)
+	end if
 
 	for each key in query
 		url = url + "&" + key +"=" + HttpEncode(query[key])
@@ -322,8 +373,15 @@ Function parseHomeScreenResult(row as Integer, id as string, startIndex as Integ
 	viewController = GetViewController()
 	maxListSize = 60
 	
+	parts = id.tokenize("|")
+	id = parts[0]
+	parentId = firstOf(parts[1], "")
+	viewTileImageUrl = parts[2]
+	
 	if id = "folders" then
 		return parseItemsResponse(json, 0, "two-row-flat-landscape-custom")
+	else if id = "playlists" then
+		return parseItemsResponse(json, 1, "two-row-flat-landscape-custom")
 	else if id = "channels" then
 		return parseItemsResponse(json, 1, "two-row-flat-landscape-custom")
 		
@@ -339,7 +397,7 @@ Function parseHomeScreenResult(row as Integer, id as string, startIndex as Integ
 			response = parseItemsResponse(json, 1, "two-row-flat-landscape-custom")
 		end if
 		
-		buttons = GetBaseMovieButtons(viewController, movieToggle, response)
+		buttons = GetBaseMovieButtons(viewController, movieToggle, parentId, viewTileImageUrl, response)
 		buttonCount = buttons.Count()
 		minTotalRecordCount = buttonCount + response.Items.Count()
 		
@@ -353,7 +411,7 @@ Function parseHomeScreenResult(row as Integer, id as string, startIndex as Integ
 		if response.TotalCount < minTotalRecordCount then response.TotalCount = minTotalRecordCount	
 		return response
 		
-	else if id = "tv" then
+	else if id = "tvshows" then
 	
 		tvToggle  = (firstOf(RegUserRead("tvToggle"), "1")).ToInt()		
 		
@@ -365,7 +423,7 @@ Function parseHomeScreenResult(row as Integer, id as string, startIndex as Integ
 			response = parseItemsResponse(json, 0, "two-row-flat-landscape-custom")
 		end if
 		
-		buttons = GetBaseTVButtons(viewController, tvToggle)
+		buttons = GetBaseTVButtons(viewController, tvToggle, parentId, viewTileImageUrl)
 		buttonCount = buttons.Count()
 		minTotalRecordCount = buttonCount + response.Items.Count()
 		
@@ -380,13 +438,6 @@ Function parseHomeScreenResult(row as Integer, id as string, startIndex as Integ
 		return response
 		
 	else if id = "livetv" then
-	
-		if isLiveTvEnabled() <> true then
-			Return {
-				Items: []
-				TotalCount: 0
-			}
-		end if    
 	
 		liveTvToggle = (firstOf(RegUserRead("liveTvToggle"), "1")).ToInt()
 		
@@ -426,10 +477,10 @@ Function parseHomeScreenResult(row as Integer, id as string, startIndex as Integ
 		musicToggle  = (firstOf(RegUserRead("musicToggle"), "1")).ToInt()		
 		
 		if musicToggle <> 1 then
-			return GetMusicButtons(viewController, musicToggle)
+			return GetMusicButtons(viewController, musicToggle, parentId, viewTileImageUrl)
 		end if
 		
-		buttons = GetBaseMusicButtons(viewController, musicToggle)
+		buttons = GetBaseMusicButtons(viewController, musicToggle, parentId, viewTileImageUrl)
 		buttonCount = buttons.Count()
 		minTotalRecordCount = buttonCount + response.Items.Count()
 		
@@ -448,62 +499,6 @@ Function parseHomeScreenResult(row as Integer, id as string, startIndex as Integ
 	return parseItemsResponse(json, 0, "two-row-flat-landscape-custom")
 	
 End Function
-
-Function isLiveTvEnabled() as Boolean
-    liveTvInfo = getLiveTvInfo()
-	
-    if liveTvInfo <> invalid
-	
-        if liveTvInfo.IsEnabled
-            if liveTvInfo.EnabledUsers <> invalid
-			
-                for each enabledUser in liveTvInfo.EnabledUsers
-                    if enabledUser = getGlobalVar("user").Id
-                        return true
-                    end if
-                end for
-            end if
-			
-        end if
-		
-    end if
-	
-	return false
-End Function
-
-Function isMusicEnabled() as Boolean
-    
-	result = getMusicAlbums(0, 0)
-	
-	
-	
-	return result.TotalCount > 0
-End Function
-
-'**********************************************************
-'** handleHomeScreenMessage
-'**********************************************************
-
-Sub showHomeScreen()
-
-	m.baseShow()
-	
-	if firstOf(RegRead("prefServerUpdates"), "yes") = "yes" then
-	
-    serverInfo = getServerInfo()
-		if serverInfo <> invalid
-		
-			if serverInfo.HasPendingRestart And serverInfo.CanSelfRestart
-			
-				showServerUpdateDialog()
-				
-			end if
-			
-		end if
-	end if
-	
-	
-End Sub
 
 Function handleHomeScreenMessage(msg) as Boolean
 
@@ -586,15 +581,20 @@ End Function
 '** Get GetMovieButtons
 '**********************************************************
 
-Function GetBaseMovieButtons(viewController as Object, movieToggle as Integer, movieResponse = invalid) As Object
+Function GetBaseMovieButtons(viewController as Object, movieToggle as Integer, parentId as String, allTileImageUrl = invalid, movieResponse = invalid) As Object
 
+	if firstOf(allTileImageUrl, "") = "" then
+		allTileImageUrl = viewController.getThemeImageUrl("hd-movies.jpg")
+	end if
+	
 	buttons = [
         {
             Title: "Movie Library"
             ContentType: "MovieLibrary"
-            ShortDescriptionLine1: "Movie Library"
-            HDPosterUrl: viewController.getThemeImageUrl("hd-movies.jpg")
-            SDPosterUrl: viewController.getThemeImageUrl("hd-movies.jpg")
+            ShortDescriptionLine1: "Library"
+            HDPosterUrl: allTileImageUrl
+            SDPosterUrl: allTileImageUrl,
+			Id: parentId
         }
     ]
 
@@ -658,13 +658,13 @@ Function GetBaseMovieButtons(viewController as Object, movieToggle as Integer, m
     
 End Function
 
-Function GetMovieButtons(viewController as Object, movieToggle as Integer) As Object
+Function GetMovieButtons(viewController as Object, movieToggle as Integer, parentId as String, allTileImageUrl = invalid) As Object
 
-    buttons = GetBaseMovieButtons(viewController, movieToggle)
+    buttons = GetBaseMovieButtons(viewController, movieToggle, parentId, allTileImageUrl)
 
     if movieToggle = 3 then
 	
-        alphaMovies = getAlphabetList("MovieAlphabet")
+        alphaMovies = getAlphabetList("MovieAlphabet", parentId)
         if alphaMovies <> invalid
             buttons.Append( alphaMovies.Items )
         end if
@@ -700,15 +700,20 @@ End Function
 '** Get TV Buttons Row
 '**********************************************************
 
-Function GetBaseTVButtons(viewController as Object, tvToggle as Integer) As Object
+Function GetBaseTVButtons(viewController as Object, tvToggle as Integer, parentId as String, allTileImageUrl = invalid) As Object
 
-    buttons = [
+    if firstOf(allTileImageUrl, "") = "" then
+		allTileImageUrl = viewController.getThemeImageUrl("hd-tv.jpg")
+	end if
+	
+	buttons = [
         {
             Title: "TV Library"
             ContentType: "TVLibrary"
-            ShortDescriptionLine1: "TV Library"
-            HDPosterUrl: viewController.getThemeImageUrl("hd-tv.jpg")
-            SDPosterUrl: viewController.getThemeImageUrl("hd-tv.jpg")
+            ShortDescriptionLine1: "Library"
+            HDPosterUrl: allTileImageUrl
+            SDPosterUrl: allTileImageUrl,
+			Id: parentId
         }
     ]
 
@@ -756,13 +761,13 @@ Function GetBaseTVButtons(viewController as Object, tvToggle as Integer) As Obje
 	
 End Function
 
-Function GetTVButtons(viewController as Object, tvToggle as Integer) As Object
+Function GetTVButtons(viewController as Object, tvToggle as Integer, parentId as String, allTileImageUrl = invalid) As Object
 
-    buttons = GetBaseTVButtons(viewController, tvToggle)
+    buttons = GetBaseTVButtons(viewController, tvToggle, parentId, allTileImageUrl)
 
     if tvToggle = 3 then
 	
-        alphaTV = getAlphabetList("TvAlphabet")
+        alphaTV = getAlphabetList("TvAlphabet", parentId)
         if alphaTV <> invalid
             buttons.Append( alphaTV.Items )
         end if
@@ -804,6 +809,13 @@ Function GetBaseLiveTVButtons(viewController as Object, liveTvToggle as Integer)
             Title: "Channels"
             ContentType: "LiveTVChannels"
             ShortDescriptionLine1: "Channels"
+            HDPosterUrl: viewController.getThemeImageUrl("hd-tv.jpg")
+            SDPosterUrl: viewController.getThemeImageUrl("hd-tv.jpg")
+        },
+        {
+            Title: "Guide"
+            ContentType: "LiveTVFavoriteGuide"
+            ShortDescriptionLine1: "Guide"
             HDPosterUrl: viewController.getThemeImageUrl("hd-tv.jpg")
             SDPosterUrl: viewController.getThemeImageUrl("hd-tv.jpg")
         },
@@ -872,15 +884,20 @@ End Function
 '** GetMusicButtons
 '**********************************************************
 
-Function GetBaseMusicButtons(viewController as Object, musicToggle as Integer) As Object
+Function GetBaseMusicButtons(viewController as Object, musicToggle as Integer, parentId as String, allTileImageUrl = invalid) As Object
 
-    buttons = [
+    if firstOf(allTileImageUrl, "") = "" then
+		allTileImageUrl = viewController.getThemeImageUrl("hd-music.jpg")
+	end if
+	
+	buttons = [
         {
             Title: "Music Library"
             ContentType: "MusicLibrary"
-            ShortDescriptionLine1: "Music Library"
-            HDPosterUrl: viewController.getThemeImageUrl("hd-music.jpg")
-            SDPosterUrl: viewController.getThemeImageUrl("hd-music.jpg")
+            ShortDescriptionLine1: "Library"
+            HDPosterUrl: allTileImageUrl
+            SDPosterUrl: allTileImageUrl,
+			Id: parentId
         }
     ]
 
@@ -912,14 +929,14 @@ Function GetBaseMusicButtons(viewController as Object, musicToggle as Integer) A
 	return buttons
 End Function
 
-Function GetMusicButtons(viewController as Object, musicToggle as Integer) As Object
+Function GetMusicButtons(viewController as Object, musicToggle as Integer, parentId as String, allTileImageUrl = invalid) As Object
 
-	buttons = GetBaseMusicButtons(viewController, musicToggle)
+	buttons = GetBaseMusicButtons(viewController, musicToggle, parentId, allTileImageUrl)
 
     ' Jump In Album
     if musicToggle = 2 then
         
-		alphaMusicAlbum = getAlphabetList("MusicAlbumAlphabet")
+		alphaMusicAlbum = getAlphabetList("MusicAlbumAlphabet", parentId)
         if alphaMusicAlbum <> invalid
             buttons.Append( alphaMusicAlbum.Items )
         end if
@@ -927,7 +944,7 @@ Function GetMusicButtons(viewController as Object, musicToggle as Integer) As Ob
     ' Jump In Artist
     else if musicToggle = 3 then
         
-		alphaMusicArtist = getAlphabetList("MusicArtistAlphabet")
+		alphaMusicArtist = getAlphabetList("MusicArtistAlphabet", parentId)
         if alphaMusicArtist <> invalid
             buttons.Append( alphaMusicArtist.Items )
         end if
@@ -968,14 +985,6 @@ Function GetOptionButtons(viewController as Object) As Object
         })
 	
 	buttons.push({
-            Title: "Switch User"
-            ContentType: "SwitchUser"
-            ShortDescriptionLine1: "Switch User"
-            HDPosterUrl: viewController.getThemeImageUrl("hd-switch-user.jpg")
-            SDPosterUrl: viewController.getThemeImageUrl("hd-switch-user.jpg")
-        })
-	
-	buttons.push({
             Title: "Preferences"
             ContentType: "Preferences"
             ShortDescriptionLine1: "Preferences"
@@ -984,7 +993,23 @@ Function GetOptionButtons(viewController as Object) As Object
             SDPosterUrl: viewController.getThemeImageUrl("hd-preferences.jpg")
         })
 
-    Return {
+    buttons.push({
+            Title: "Change Server"
+            ContentType: "ChangeServer"
+            ShortDescriptionLine1: "Change Server"
+            HDPosterUrl: viewController.getThemeImageUrl("hd-landscape.jpg")
+            SDPosterUrl: viewController.getThemeImageUrl("hd-landscape.jpg")
+        })
+	
+	buttons.push({
+            Title: "Sign Out"
+            ContentType: "Logout"
+            ShortDescriptionLine1: "Sign Out"
+            HDPosterUrl: viewController.getThemeImageUrl("hd-switch-user.jpg")
+            SDPosterUrl: viewController.getThemeImageUrl("hd-switch-user.jpg")
+        })
+	
+	Return {
 		Items: buttons
 		TotalCount: buttons.Count()
 	}
@@ -1005,7 +1030,7 @@ Sub homeScreenOnTimerExpired(timer)
                 Debug("roku is idle: NOT sending keepalive WOL packets")
             else 
                 Debug("keepalive WOL packets being sent.")
-                sendWolToAllServers(m)
+                ConnectionManager().sendWolToAllServers(m)
             end if
         'else if server.online and timer.keepAlive = invalid then 
             'Debug("WOL " + tostr(server.name) + " is already online")

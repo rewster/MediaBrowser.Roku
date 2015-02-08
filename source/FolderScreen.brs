@@ -5,6 +5,7 @@
 Function createFolderScreen(viewController as Object, item as Object) As Object
 
 	parentId = item.Id
+	
 	title = item.Title
 
 	if item.ContentType = "BoxSet" then
@@ -13,11 +14,12 @@ Function createFolderScreen(viewController as Object, item as Object) As Object
 	else
 		settingsPrefix = "folders"
 		contextMenuType = "folders"
+		title = item.Title + "  (MENU *)"
 	End if
 
     imageType      = (firstOf(RegUserRead(settingsPrefix + "ImageType"), "0")).ToInt()
 
-	names = [item.Title]
+	names = [title]
 	keys = [item.Id]
 
 	loader = CreateObject("roAssociativeArray")
@@ -26,11 +28,13 @@ Function createFolderScreen(viewController as Object, item as Object) As Object
 	loader.getUrl = getFolderItemsUrl
 	loader.parsePagedResult = parseFolderItemsResult
 
-    if imageType = 0 then
-        screen = createPaginatedGridScreen(viewController, names, keys, loader, "mixed-aspect-ratio")
-    else
-        screen = createPaginatedGridScreen(viewController, names, keys, loader, "two-row-flat-landscape-custom")
-    end if
+	if imageType = 0 then
+		gridStyle = "mixed-aspect-ratio"
+    Else
+		gridStyle = "two-row-flat-landscape-custom"
+    End If
+	
+    screen = createPaginatedGridScreen(viewController, names, keys, loader, gridStyle)
 
 	screen.baseActivate = screen.Activate
 	screen.Activate = folderScreenActivate
@@ -38,7 +42,12 @@ Function createFolderScreen(viewController as Object, item as Object) As Object
 	screen.settingsPrefix = settingsPrefix
 
 	screen.contextMenuType = contextMenuType
-    screen.displayDescription = (firstOf(RegUserRead(settingsPrefix + "Description"), "0")).ToInt()
+	
+	if imageType = 0 then
+		screen.displayDescription = 1
+	else
+		screen.displayDescription = (firstOf(RegUserRead(settingsPrefix + "Description"), "0")).ToInt()
+	end if
 
 	screen.createContextMenu = folderScreenCreateContextMenu
 
@@ -48,7 +57,12 @@ End Function
 Sub folderScreenActivate(priorScreen)
 
     imageType      = (firstOf(RegUserRead(m.settingsPrefix + "ImageType"), "0")).ToInt()
-	displayDescription = (firstOf(RegUserRead(m.settingsPrefix + "Description"), "0")).ToInt()
+	
+	if imageType = 0 then
+		displayDescription = 1
+	else
+		displayDescription = (firstOf(RegUserRead(m.settingsPrefix + "Description"), "0")).ToInt()
+	end if
 	
     if imageType = 0 then
 		gridStyle = "mixed-aspect-ratio"

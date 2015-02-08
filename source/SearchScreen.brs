@@ -105,6 +105,7 @@ Sub ssOnTimerExpired(timer)
 			SearchTerm: term
 			IncludePeople: "false"
 			IncludeStudios: "false"
+			IncludeItemTypes: "Movie,BoxSet,Series,Episode,Trailer,Video,AdultVideo,MusicVideo,Genre,MusicGenre,MusicArtist"
 		}
 
 		' Prepare Request
@@ -134,13 +135,17 @@ Sub ssOnUrlEvent(msg, requestContext)
 
     suggestions = processSearchHintsResponse(msg.GetString())
 
-	if suggestions = invalid then
-
-    else if suggestions.Count() > 0 then
+	if suggestions <> invalid then
 
         m.Screen.SetSearchTermHeaderText("Search Suggestions:")
         m.Screen.SetClearButtonEnabled(false)
-        m.Screen.SetSearchTerms(suggestions)
+		
+		if suggestions.Count() > 0 then
+			m.Screen.SetSearchTerms(suggestions)
+		else
+			m.Screen.ClearSearchTerms()
+		end if
+        
 
     end if
 
@@ -148,6 +153,13 @@ End Sub
 
 Sub ssSetText(text, isComplete)
 
+	if text = invalid or text = "" then 
+		m.Screen.SetSearchTermHeaderText("Recent Searches:")
+        m.Screen.SetSearchTerms(m.History)		
+		m.Screen.SetSearchText("")
+		return
+	end if
+	
     if isComplete then
 
         m.History.Push(text)
@@ -220,7 +232,7 @@ Function getSearchResultRowUrl(row as Integer, id as String) as String
 			SearchTerm: searchTerm
 			IncludePeople: "false"
 			IncludeStudios: "false"
-			IncludeItemTypes: "Video,AdultVideo"
+			IncludeItemTypes: "Video,AdultVideo,MusicVideo"
 		}
 	else if row = 4
 		query = {

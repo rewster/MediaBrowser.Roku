@@ -4,7 +4,7 @@
 
 Function GetServerBaseUrl(baseUrl = "")
 
-	if baseUrl = "" then baseUrl = m.serverUrl
+	if baseUrl = "" then baseUrl = GetViewController().serverUrl
 	
 	if Instr(0, baseUrl, "://") = 0 then 
 		baseUrl = "http://" + baseUrl
@@ -140,96 +140,32 @@ Function scanLocalNetwork() As Dynamic
     return invalid
 End Function
 
+function findServers() as Object
 
-'******************************************************
-' Get Server Info
-'******************************************************
-
-Function getServerInfo() As Object
-    ' URL
-    url = GetServerBaseUrl() + "/System/Info"
-    
-    ' Prepare Request
-    request = HttpRequest(url)
-    request.ContentType("json")
-    request.AddAuthorization()
-
-    ' Execute Request
-    response = request.GetToStringWithTimeout(10)
-    if response <> invalid
-        metaData = ParseJSON(response)
-
-        if metaData = invalid
-            Debug("Error Parsing Server Info")
-            return invalid
-        end if
-
-		SetServerData(metaData.Id, "Mac", metaData.MacAddress)
+	server = scanLocalNetwork()
+	
+	servers = CreateObject("roArray", 10, true)
+	
+	if server <> invalid then
+	
+		servers.push({
 		
-        return metaData
-    else
-        Debug("Failed to get Server Info")
-    end if
-
-    return invalid
-End Function
-
-Function getPublicServerInfo(baseUrl = "") As Object
-    
-	' URL
-    url = GetServerBaseUrl(baseUrl) + "/System/Info/Public"
-    
-    ' Prepare Request
-    request = HttpRequest(url)
-    request.ContentType("json")
-    request.AddAuthorization()
-
-    ' Execute Request
-    response = request.GetToStringWithTimeout(10)
-    if response <> invalid
-        metaData = ParseJSON(response)
-
-        if metaData = invalid
-            Debug("Error Parsing Server Info")
-            return invalid
-        end if
+			LocalAddress: server.Address,
+			Name: server.Name,
+			Id: server.Id
+		})
 		
-        return metaData
-    else
-        Debug("Failed to get public server info")
-    end if
+	end if
+	
+	return servers
 
-    return invalid
-End Function
-'******************************************************
-' Post Server Restart
-'******************************************************
-
-Function postServerRestart() As Boolean
-    ' URL
-    url = GetServerBaseUrl() + "/System/Restart"
-
-    ' Prepare Request
-    request = HttpRequest(url)
-    request.AddAuthorization()
-
-    ' Execute Request
-    response = request.PostFromStringWithTimeout("", 5)
-    if response <> invalid
-        return true
-    else
-        Debug("Failed to Post Server Restart")
-    end if
-
-    return false
-End Function
-
+End function
 
 '******************************************************
 ' Authenticates a user by name
 '******************************************************
 
-Function authenticateUser(userText As String, passwordText As String) As Object
+Function authenticateUser(serverUrl As String, userText As String, passwordText As String) As Object
 
     if passwordText <> "" then
         ba = CreateObject("roByteArray")
@@ -243,7 +179,7 @@ Function authenticateUser(userText As String, passwordText As String) As Object
     end if
 
     ' URL
-    url = GetServerBaseUrl() + "/Users/AuthenticateByName?format=json"
+    url = GetServerBaseUrl(serverUrl) + "/Users/AuthenticateByName?format=json"
 
     ' Prepare Request
     request = HttpRequest(url)
@@ -275,7 +211,7 @@ Function postCapabilities() As Boolean
 
     url = GetServerBaseUrl() + "/Sessions/Capabilities"
 	
-	url = url + "?PlayableMediaTypes=Audio,Video"
+	url = url + "?PlayableMediaTypes=Audio,Video,Photo"
 	url = url + "&SupportedCommands=MoveUp,MoveDown,MoveLeft,MoveRight,Select,Back,GoHome,SendString,GoToSearch,GoToSettings,DisplayContent,SetAudioStreamIndex,SetSubtitleStreamIndex"
 	url = url + "&MessageCallbackUrl=" + HttpEncode(":8324/mediabrowser/message")
 
@@ -306,4 +242,27 @@ Function normalizeJson(json As String) as String
 
 	return json
 	
+End Function
+
+Function getInstalledPlugins() As Object
+
+    ' URL
+    url = GetServerBaseUrl() + "/Plugins"
+
+    ' Prepare Request
+    request = HttpRequest(url)
+    request.ContentType("json")
+    request.AddAuthorization()
+
+    ' Execute Request
+    response = request.GetToStringWithTimeout(10)
+    if response <> invalid
+
+		fixedResponse = normalizeJson(response)
+
+        return ParseJSON(fixedResponse)
+		
+    end if
+
+    return invalid
 End Function

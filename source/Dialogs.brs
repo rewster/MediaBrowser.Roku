@@ -1,36 +1,4 @@
 '******************************************************
-' createErrorDialog
-'******************************************************
-
-Sub createErrorDialog(button = "Back") As Object
-
-    createDialog("Error Loading Data", "There was an error loading data from the server. Please make sure your server is running and try again.", button)
-	
-End Sub
-
-'******************************************************
-' Create Server Update Dialog
-'******************************************************
-
-Sub showServerUpdateDialog()
-
-	dlg = createContextViewMenuYesNoDialog("Server Restart", "Media Browser Server needs to restart to apply updates. Restart now? Please note if restarting server, please wait a minute to relaunch channel.")
-	dlg.HandleButton = handleServerUpdateDialogButton
-	dlg.Show()
-	
-End Sub
-
-Function handleServerUpdateDialogButton(command, data) As Boolean
-
-    if command = "2" then
-		postServerRestart()
-        return true
-    end if
-	
-    return false
-End Function
-
-'******************************************************
 ' Create Server Selection Dialog
 '******************************************************
 
@@ -50,19 +18,6 @@ End Function
 Function createServerRemoveDialog() as String
 
     return showContextViewMenuYesNoDialog("Confirm Action", "Are you sure you wish to remove this server from the list?")
-End Function
-
-
-'******************************************************
-' Create Server Add Dialog
-'******************************************************
-
-Function createServerAddDialog()
-
-    options = ["Scan Network", "Manually Add Server"]
-	
-	return createOptionsDialog("Select Action", options, 1)
-	
 End Function
 
 '******************************************************

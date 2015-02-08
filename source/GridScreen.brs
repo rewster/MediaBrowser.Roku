@@ -62,6 +62,8 @@ Function CreateGridScreen(viewController as Object, style As String) As Object
     screen.SetDescriptionVisible = ShowGridDescriptionBox
     screen.SetFocusedListItem    = SetGridFocusedItem
     screen.Close                 = CloseGridScreen
+	
+	screen.emptyItemsText = "This section doesn't contain any items."
 
     return screen
 
@@ -91,7 +93,9 @@ Function gridHandleMessage(msg) As Boolean
         handled = true
         if msg.isListItemSelected() then
 
-			context = m.contentArray[msg.GetIndex()]
+			rows = m.contentArray
+			rowIndex = msg.GetIndex()
+			context = rows[rowIndex]
             
             index = msg.GetData()
 
@@ -206,7 +210,7 @@ Sub gridOnDataLoaded(row As Integer, data As Object, startItem As Integer, count
                 if m.Refreshing <> true then
                     dialog = createBaseDialog()
                     dialog.Title = "Section Empty"
-                    dialog.Text = "This section doesn't contain any items."
+                    dialog.Text = m.emptyItemsText
                     dialog.Show()
                     m.closeOnActivate = true
                 else
@@ -266,12 +270,12 @@ Sub setGridTheme(viewController as Object, style as String)
 
     app = CreateObject("roAppManager")
     if style = "two-row-flat-landscape-custom" then
-        app.SetThemeAttribute("GridScreenFocusBorderHD", viewController.getThemeImageUrl("hd-border-flat-landscape.png"))
-        app.SetThemeAttribute("GridScreenBorderOffsetHD", "-34,-19")
+        'app.SetThemeAttribute("GridScreenFocusBorderHD", viewController.getThemeImageUrl("hd-border-flat-landscape.png"))
+        'app.SetThemeAttribute("GridScreenBorderOffsetHD", "-34,-19")
         app.SetThemeAttribute("GridScreenDescriptionOffsetHD", "270,140")
     else if style = "mixed-aspect-ratio" then
-        app.SetThemeAttribute("GridScreenFocusBorderHD", viewController.getThemeImageUrl("hd-border-portrait.png"))
-        app.SetThemeAttribute("GridScreenBorderOffsetHD", "-25,-35")
+        'app.SetThemeAttribute("GridScreenFocusBorderHD", viewController.getThemeImageUrl("hd-border-portrait.png"))
+        'app.SetThemeAttribute("GridScreenBorderOffsetHD", "-25,-35")
         app.SetThemeAttribute("GridScreenDescriptionOffsetHD", "210,260")
     end if
 End Sub
@@ -310,7 +314,16 @@ End Sub
 '**********************************************************
 
 Sub gridActivate(priorScreen)
-    if m.popOnActivate then
+
+    if m.ignoreOnActivate = true then
+        ' close any facades even though we are ignoring the rest.
+        if m.Facade <> invalid then
+            m.Facade.Close()
+            m.Facade = invalid
+        end if
+        m.ignoreOnActivate = false
+        return
+    else if m.popOnActivate then
         m.ViewController.PopScreen(m)
         return
     else if m.closeOnActivate then

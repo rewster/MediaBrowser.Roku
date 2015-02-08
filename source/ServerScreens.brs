@@ -4,77 +4,25 @@
 
 
 '**********************************************************
-'** Server Statup Checks
-'** 0 = First Run, 1 = Server List, 2 = Connect to Server
-'**********************************************************
-
-Function serverStartUp() As Integer
-
-    ' Get Active Server
-    activeServerId = RegRead("activeServerId")
-	
-    ' If active server, check to see if it is currently running
-    if activeServerId <> invalid And activeServerId <> ""
-        
-        serverAddress = GetServerData(activeServerId, "Address")
-
-        if serverAddress <> invalid
-            
-            ' Check Server Connection
-            serverInfo = getPublicServerInfo(serverAddress)
-
-            if serverInfo = invalid
-                createDialog("Unable To Connect", "We were unable to connect to that media browser server. Please make sure your server is running.", "Back")
-                return 1
-            end if
-
-            ' Setup Server URL
-            m.serverURL = serverAddress
-
-            return 2
-
-        else
-            return 1
-
-        end if
-
-    else
-        ' Check for at least one server
-        serverList = getServerList()
-		
-        if serverList.Count() > 0
-            return 1
-        else
-            return 0
-        end if
-
-    end if
-
-    return 0
-End Function
-
-
-'**********************************************************
 '** Create Server Screen
 '**********************************************************
 
 Function createServerFirstRunSetupScreen(viewController as Object)
 
-    header = "Welcome"
+    header = "Welcome to Media Browser"
     paragraphs = []
-    paragraphs.Push("To begin, please make sure you media browser server is currently running.")
-    paragraphs.Push("Media Browser Server is available for download at http://www.mediabrowser.tv")
-    paragraphs.Push("Below you may select to scan the network and attempt to automatically find your server or manually enter it's information.")
+    paragraphs.Push("With Media Browser you can easily stream videos, music and photos to Roku and other devices from your Media Browser server.")
+    paragraphs.Push("To begin, please make sure your Media Browser server is currently running. For information on how to download and install Media Browser, visit:")
+    paragraphs.Push("http://www.mediabrowser.tv")
 
     screen = createParagraphScreen(header, paragraphs, viewController)
     screen.ScreenName = "FirstRun"
 	
-    screen.SetButton("1", "Scan Network")
-    screen.SetButton("2", "Manually Add Server")
+    screen.SetButton("gonext", "Next")
 
     ' Add exit button for legacy devices
     if getGlobalVar("legacyDevice")
-        screen.SetButton("3", "Exit Channel")
+        screen.SetButton("exit", "Exit Channel")
     end if
 	
 	screen.HandleButton = handleFirstRunSetupScreenButton
@@ -85,32 +33,19 @@ End Function
 
 Function handleFirstRunSetupScreenButton(command, data) As Boolean
 
-    if command = "1"
+	m.goHomeOnPop = true
 	
-        facade = CreateObject("roOneLineDialog")
-		facade.SetTitle("Please wait...")
-		facade.ShowBusyAnimation()
-		facade.Show()
-
-		' Scan Network
-        results = scanLocalNetwork()
-
-        facade.Close()
-
-        if results <> invalid
-
-            ' Show Found Server Screen
-            showServerFoundScreen(m.ViewController, results)
-			return false
-        else
-            createDialog("No Server Found", "We were unable to find a server running on your local network. Please make sure your server is running or if you continue to have problems, manually add the server.", "Back", true)
-			return false
-        end if
-
-    else if command = "2"
-
-        createServerConfigurationScreen(m)
+    if command = "gonext"
+	
+        screen = createConnectSignInScreen(m.ViewController)
+		m.ViewController.InitializeOtherScreen(screen, ["Connect"])
+		screen.Show()
+	
 		return false
+
+    else if command = "exit"
+
+        m.goHomeOnPop = false
 		
 	end If
 
@@ -134,8 +69,15 @@ End Sub
 
 Function createServerListScreen(viewController as Object)
 
-    ' Get Server List
-    serverList = getServerList()
+	facade = CreateObject("roOneLineDialog")
+	facade.SetTitle("Please wait...")
+	facade.ShowBusyAnimation()
+	facade.Show()
+
+	' Get Server List
+    serverList = connectionManagerGetServers()
+					
+	facade.Close()
 
     ' Create List Screen
     screen = CreateListScreen(viewController)
@@ -147,7 +89,7 @@ Function createServerListScreen(viewController as Object)
     for i = 0 to serverList.Count()-1
         entry = {
             Title: serverList[i].Name,
-            ShortDescriptionLine1: serverList[i].Address,
+            ShortDescriptionLine1: serverList[i].Name,
             Action: "select",
             Id: serverList[i].Id,
             HDBackgroundImageUrl: viewController.getThemeImageUrl("hd-server-lg.png"),
@@ -159,13 +101,39 @@ Function createServerListScreen(viewController as Object)
 
     entry = {
             Title: ">> Add Server",
-            ShortDescriptionLine1: "Add a new server.",
+            ShortDescriptionLine1: "Add a new server",
             Action: "add",
             HDBackgroundImageUrl: viewController.getThemeImageUrl("hd-server-lg.png"),
             SDBackgroundImageUrl: viewController.getThemeImageUrl("sd-server-lg.png")
         }
 
     contentList.push( entry )
+	
+	if ConnectionManager().isLoggedIntoConnect() = true then
+	
+		entry = {
+            Title: ">> Sign out of Media Browser Connect",
+            ShortDescriptionLine1: "Sign out of Media Browser Connect",
+            Action: "signout",
+            HDBackgroundImageUrl: viewController.getThemeImageUrl("hd-server-lg.png"),
+            SDBackgroundImageUrl: viewController.getThemeImageUrl("sd-server-lg.png")
+        }
+
+		contentList.push( entry )
+
+	else
+	
+		entry = {
+            Title: ">> Sign in with Media Browser Connect",
+            ShortDescriptionLine1: "Sign in with Media Browser Connect",
+            Action: "signin",
+            HDBackgroundImageUrl: viewController.getThemeImageUrl("hd-server-lg.png"),
+            SDBackgroundImageUrl: viewController.getThemeImageUrl("sd-server-lg.png")
+        }
+
+		contentList.push( entry )
+
+	end if
 
     ' Set Content
     screen.SetContent(contentList)
@@ -174,6 +142,7 @@ Function createServerListScreen(viewController as Object)
 
 	screen.baseHandleMessage = screen.HandleMessage
 	screen.HandleMessage = serverListScreenHandleMessage
+	screen.servers = serverList
 
     return screen
 
@@ -202,20 +171,35 @@ Function serverListScreenHandleMessage(msg) As Boolean
 
                 if selection = "1"
                     
-					RegWrite("activeServerId", serverId)
+					server = invalid
+					for each curr in m.servers
+						if curr.Id = serverId then
+							server = curr
+							exit for
+						end if
+					end for
 					
-					' Make them sign in again
-					RegDelete("userId")
-					DeleteServerData(serverId, "AccessToken")
+					facade = CreateObject("roOneLineDialog")
+					facade.SetTitle("Please wait...")
+					facade.ShowBusyAnimation()
+					facade.Show()
+
+					result = ConnectionManager().connectToServerInfo(server)
 					
-					viewController.ShowInitialScreen()
+					facade.Close()
+					
+					if result.State = "Unavailable"
+						createDialog("Unable To Connect", "We were unable to connect to this server. Please make sure it is running and try again.", "Back", true)
+					else
+						navigateFromConnectionResult(result)
+					end if
 
                 else if selection = "2"
 				
                     selection = createServerRemoveDialog()
                     if selection = "1"
 					
-                        DeleteServer(serverId)
+                        ConnectionManager().DeleteServer(serverId)
                         Debug("Remove Server")
 						
 						viewController.ShowInitialScreen()
@@ -225,33 +209,20 @@ Function serverListScreenHandleMessage(msg) As Boolean
 
             else if action = "add"
 
-                selection = createServerAddDialog()
-				
-                if selection = "1"
-				
-                    facade = CreateObject("roOneLineDialog")
-					facade.SetTitle("Please wait...")
-					facade.ShowBusyAnimation()
-					facade.Show()
+                ' Add Server Manually
+                createServerConfigurationScreen(m)
 
-					' Scan Network
-                    results = scanLocalNetwork()
+            else if action = "signin"
 
-                    facade.Close()
+ 				signInContext = {
+					ContentType: "ConnectSignIn"
+				}
+                viewController.createScreenForItem(signInContext, 0, ["Connect"], true)
+               
 
-                    if results <> invalid
-                        ' Show Found Server Screen
-                        showServerFoundScreen(viewController, results)
-                    else
-                        createDialog("No Server Found", "We were unable to find a server running on your local network. Please make sure your server is running or if you continue to have problems, manually add the server.", "Back")
-                    end if
+            else if action = "signout"
 
-                else if selection = "2"
-
-                    ' Add Server Manually
-                    createServerConfigurationScreen(m)
-
-                end if
+				viewController.Logout()
 
             end if
 
@@ -270,13 +241,13 @@ End Function
 Sub createServerConfigurationScreen(parentScreen as Object) 
 
 	screen = GetViewController().CreateTextInputScreen("Enter Server Address", "Server IP Address (ex. 192.168.1.100)", ["Server Setup"], "", false)
-	screen.ValidateText = OnRequiredTextValueEntered
+	screen.ValidateText = OnServerAddressTextValueEntered
 	screen.Show(true)
 
 	value = screen.Text
     
 	portScreen = GetViewController().CreateTextInputScreen("Enter Server Port", "Server Port #", ["Server Setup"], "8096", false)
-	portScreen.ValidateText = OnRequiredTextValueEntered
+	portScreen.ValidateText = OnPortTextValueEntered
 	portScreen.ipAddress = value
 	
 	parentScreen.OnUserInput = onServerConfigurationUserInput
@@ -289,7 +260,40 @@ End Sub
 
 Function OnRequiredTextValueEntered(value) As Boolean
 
-	return value <> invalid and value <> ""
+	if value <> invalid and value <> "" then
+		return true
+	else
+	
+		createDialog("Invalid Input", "Please enter a valid value.", "Back", true)
+	
+		return false
+	end if
+	
+End Function
+
+Function OnServerAddressTextValueEntered(value) As Boolean
+
+	if value <> invalid and value <> "" then
+		return true
+	else
+	
+		createDialog("Invalid Input", "Please enter a valid server address.", "Back", true)
+	
+		return false
+	end if
+	
+End Function
+
+Function OnPortTextValueEntered(value) As Boolean
+
+	if type(firstOf(value, "").toint()) = "Integer" then
+		return true
+	else
+	
+		createDialog("Invalid Input", "Please enter a valid port.", "Back", true)
+	
+		return false
+	end if
 	
 End Function
 
@@ -319,19 +323,23 @@ End Sub
 
 Sub onServerAddressDiscovered(viewController as Object, serverAddress As String) 
 
+	facade = CreateObject("roOneLineDialog")
+	facade.SetTitle("Please wait...")
+	facade.ShowBusyAnimation()
+	facade.Show()
+                    
 	' Check Server Connection
-    serverInfo = getPublicServerInfo(serverAddress)
+    result = ConnectionManager().connectToServer(serverAddress)
 
-    if serverInfo = invalid
-        createDialog("Unable To Connect", "We were unable to connect to this server. Please make sure it is running before attempting to add it to the server list.", "Back", true)
+	facade.Close()
+	
+    if result.State = "Unavailable"
+		createDialog("Unable To Connect", "We were unable to connect to this server. Please make sure it is running and try again.", "Back", true)
         return 
     end if
-
-    SetServerData(serverInfo.Id, "Name", serverInfo.ServerName)
-	SetServerData(serverInfo.Id, "Address", serverAddress)
-	SetServerData(serverInfo.Id, "Id", serverInfo.Id)
 	
-    viewController.ShowInitialScreen()
+	navigateFromConnectionResult(result)
+	
 End Sub
 
 '**********************************************************
@@ -358,11 +366,6 @@ Function createServerFoundScreen(viewController as Object, serverLocationInfo As
     screen.ScreenName = "ServerFound"
 	
     screen.SetButton("1", "Continue")
-
-    ' Add exit button for legacy devices
-    if getGlobalVar("legacyDevice")
-        screen.SetButton("3", "Exit Channel")
-    end if
 	
 	screen.HandleButton = serverFoundHandleButton
 	screen.serverInfo = serverLocationInfo

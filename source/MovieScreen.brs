@@ -2,7 +2,7 @@
 '** createMovieLibraryScreen
 '**********************************************************
 
-Function createMovieLibraryScreen(viewController as Object) As Object
+Function createMovieLibraryScreen(viewController as Object, parentId as String) As Object
 
     imageType      = (firstOf(RegUserRead("movieImageType"), "0")).ToInt()
 
@@ -13,6 +13,7 @@ Function createMovieLibraryScreen(viewController as Object) As Object
 	loader.getUrl = getMovieLibraryRowScreenUrl
 	loader.parsePagedResult = parseMovieLibraryScreenResult
 	loader.getLocalData = getMovieLibraryScreenLocalData
+	loader.parentId = parentId
 
     if imageType = 0 then
         screen = createPaginatedGridScreen(viewController, names, keys, loader, "mixed-aspect-ratio")
@@ -59,7 +60,7 @@ End Sub
 Function getMovieLibraryScreenLocalData(row as Integer, id as String, startItem as Integer, count as Integer) as Object
 
 	if row = 1 then
-		return getAlphabetList("MovieAlphabet")
+		return getAlphabetList("MovieAlphabet", m.parentId)
 	end If
 
     return invalid
@@ -101,6 +102,7 @@ Function getMovieLibraryRowScreenUrl(row as Integer, id as String) as String
 
 		query.AddReplace("IncludeItemTypes", "Movie")
 		query.AddReplace("Fields", "Overview")
+		query.AddReplace("ParentId", m.parentId)
 
 	else if row = 1
 		' Alphabet - should never get in here
@@ -111,6 +113,8 @@ Function getMovieLibraryRowScreenUrl(row as Integer, id as String) as String
 		query.AddReplace("IncludeItemTypes", "BoxSet")
 		query.AddReplace("Fields", "Overview")
 		query.AddReplace("SortBy", "SortName")
+		query.AddReplace("ParentId", m.parentId)
+		query.AddReplace("ImageTypeLimit", "1")
 
 	else if row = 3
 		url = url  + "/Genres?recursive=true"
@@ -118,6 +122,8 @@ Function getMovieLibraryRowScreenUrl(row as Integer, id as String) as String
 		query.AddReplace("SortBy", "SortName")
 		query.AddReplace("userid", getGlobalVar("user").Id)
 		query.AddReplace("IncludeItemTypes", "Movie")
+		query.AddReplace("ParentId", m.parentId)
+		query.AddReplace("ImageTypeLimit", "1")
 	end If
 
 	for each key in query
@@ -160,7 +166,7 @@ End Function
 '** createMovieAlphabetScreen
 '**********************************************************
 
-Function createMovieAlphabetScreen(viewController as Object, letter As String) As Object
+Function createMovieAlphabetScreen(viewController as Object, letter As String, parentId = invalid) As Object
 
     imageType      = (firstOf(RegUserRead("movieImageType"), "0")).ToInt()
 
@@ -170,6 +176,7 @@ Function createMovieAlphabetScreen(viewController as Object, letter As String) A
 	loader = CreateObject("roAssociativeArray")
 	loader.getUrl = getMovieAlphabetScreenUrl
 	loader.parsePagedResult = parseMovieAlphabetScreenResult
+	loader.parentId = parentId
 
     if imageType = 0 then
         screen = createPaginatedGridScreen(viewController, names, keys, loader, "mixed-aspect-ratio")
@@ -199,8 +206,11 @@ Function getMovieAlphabetScreenUrl(row as Integer, id as String) as String
         IncludeItemTypes: "Movie"
         fields: "Overview"
         sortby: "SortName"
-        sortorder: "Ascending"
+        sortorder: "Ascending",
+		ImageTypeLimit: "1"
     }
+	
+	if m.parentId <> invalid then query.parentId = m.parentId
 
     if letter = "#" then
         filters = {
@@ -277,7 +287,8 @@ Function getMovieGenreScreenUrl(row as Integer, id as String) as String
         fields: "Overview"
         sortby: "SortName"
         sortorder: "Ascending",
-		genres: genre
+		genres: genre,
+		ImageTypeLimit: "1"
     }
 
 	for each key in query

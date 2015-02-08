@@ -217,6 +217,9 @@ Sub videoActivate(priorScreen)
     end if
 
     if m.refreshOnActivate then
+	
+		m.refreshOnActivate = false
+		
         if m.ContinuousPlay AND (priorScreen.isPlayed = true) then
             m.GotoNextItem()
 
@@ -561,6 +564,7 @@ Function handleMoreOptionsButton(command, data) As Boolean
 		newScreen.Show()
         return true
     else if command = "close" then
+		m.Screen.Close()
         return true
     end if
 	
@@ -583,7 +587,7 @@ Sub createAudioAndSubtitleDialog(audioStreams, subtitleStreams, playOptions)
 	Debug ("Current AudioStreamIndex: " + tostr(playOptions.AudioStreamIndex))
 	Debug ("Current SubtitleStreamIndex: " + tostr(playOptions.SubtitleStreamIndex))
 	
-    if audioStreams.Count() > 1 and subtitleStreams.Count() > 0
+    if audioStreams.Count() > 1 or subtitleStreams.Count() > 0
 		dlg = createBaseDialog()
 		dlg.Title = "Audio & Subtitles"
 
@@ -597,12 +601,8 @@ Sub createAudioAndSubtitleDialog(audioStreams, subtitleStreams, playOptions)
 		dlg.SetButton("subtitles", "Subtitles")
 		dlg.SetButton("close", "Close")
 
-		dlg.Show()
+		dlg.Show(true)
 
-    else if audioStreams.Count() > 1
-        createStreamSelectionDialog("Audio", audioStreams, subtitleStreams, playOptions, false)    
-    else if subtitleStreams.Count() > 0
-        createStreamSelectionDialog("Subtitle", audioStreams, subtitleStreams, playOptions, false)
     end if
 
 End Sub
@@ -619,11 +619,14 @@ Function handleAudioAndSubtitlesButton(command, data) As Boolean
 		createStreamSelectionDialog("Subtitle", m.audioStreams, m.subtitleStreams, m.playOptions, true)
         return true
 
+    else if command = "close" then
+
+		return true
+
     end if
 
-    return false
+    return true
 End Function
-
 
 Sub createStreamSelectionDialog(streamType, audioStreams, subtitleStreams, playOptions, openParentDialog)
 
@@ -658,11 +661,8 @@ Sub createStreamSelectionDialog(streamType, audioStreams, subtitleStreams, playO
 
 		if dlg.Buttons.Count() < 5 then
 
-			title = "Und"
+			title = firstOf(stream.Language, "Unknown language")
 
-			if stream.Language <> invalid then title = stream.Language
-			'if stream.Codec <> invalid then title = title + " - " + stream.Codec
-			
 			if currentIndex = stream.Index then title = title + " [Selected]"
 
 			dlg.SetButton(tostr(stream.Index), title)
@@ -671,7 +671,7 @@ Sub createStreamSelectionDialog(streamType, audioStreams, subtitleStreams, playO
 	end For
 
     dlg.SetButton("close", "Cancel")
-    dlg.Show()
+    dlg.Show(true)
 End Sub
 
 Function handleStreamSelectionButton(command, data) As Boolean

@@ -67,7 +67,7 @@ Sub addVideoDisplayInfo(metaData as Object, item as Object)
             foundVideo = true
 
             ' Determine Full 1080p
-            if stream.Height >= 1080
+            if firstOf(stream.Height, 0) >= 1080
                 metaData.FullHD = true
             end if
 
@@ -139,9 +139,6 @@ Sub addVideoPlaybackInfo(item, options)
 			item.StreamFormat = mediaSource.Container
 		end if
 		
-		'item.HDBifUrl = GetServerBaseUrl() + "/Videos/" + item.Id + "/index.bif?maxWidth=320&mediaSourceId=" + mediaSourceId
-		'item.SDBifUrl = GetServerBaseUrl() + "/Videos/" + item.Id + "/index.bif?maxWidth=240&mediaSourceId=" + mediaSourceId
-		
 	else
 
 		url = GetServerBaseUrl() + "/Videos/" + item.Id + "/master.m3u8?mediaSourceId=" + mediaSourceId
@@ -158,13 +155,18 @@ Sub addVideoPlaybackInfo(item, options)
 		url = url + "&profile=high"
 		url = url + "&level=41"
 		url = url + "&deviceId=" + getGlobalVar("rokuUniqueId", "Unknown")
-
+		
+		url = url + "&ClientTime=" + CreateObject("roDateTime").asSeconds().tostr()
+		url = url + "&MaxVideoBitDepth=8"
+		
+		maxRefFrames = firstOf(getGlobalVar("maxRefFrames"), 0)
+		
+		if maxRefFrames > 0 then
+			url = url + "&MaxRefFrames=" + maxRefFrames.tostr()
+		end if
+		
 		url = url + "&AudioCodec=" + streamInfo.AudioCodec
 		url = url + "&MaxAudioChannels=" + tostr(streamInfo.MaxAudioChannels)
-
-		if options.PlayStart <> invalid then
-			'url = url + "&StartTimeTicks="+ tostr(options.PlayStart) + "0000000"
-		end if
 
 		if streamInfo.AudioStreamIndex <> invalid then
 			url = url + "&AudioStreamIndex=" + tostr(streamInfo.AudioStreamIndex)
@@ -178,10 +180,6 @@ Sub addVideoPlaybackInfo(item, options)
 			else
 				item.SubtitleUrl = GetServerBaseUrl()  + "/Videos/" + item.Id + "/" + mediaSourceId + "/Subtitles/" + tostr(streamInfo.SubtitleStreamIndex) + "/Stream.srt"
 								
-				if options.PlayStart <> invalid then
-					'item.SubtitleUrl = item.SubtitleUrl + "?StartPositionTicks="+ tostr(options.PlayStart) + "0000000"
-				end if
-					
 				item.SubtitleConfig = {
 					ShowSubtitle: 1
 					TrackName: item.SubtitleUrl
@@ -222,17 +220,13 @@ Sub addVideoPlaybackInfo(item, options)
 		
 			subUrl = GetServerBaseUrl()  + "/Videos/" + item.Id + "/" + mediaSourceId + "/Subtitles/" + tostr(stream.Index) + "/Stream.srt"
 								
-			if options.PlayStart <> invalid then
-				'subUrl = subUrl + "?StartPositionTicks="+ tostr(options.PlayStart) + "0000000"
-			end if
-			
 			subtitleInfo = {
 				Language: stream.Language
 				TrackName: subUrl
 				Description: stream.Codec
 			}
 			
-			if subtitleInfo.Language = invalid then subtitleInfo.Language = "Unknown language"
+			if subtitleInfo.Language = invalid then subtitleInfo.Language = "und"
 			
 			item.SubtitleTracks.push(subtitleInfo)
 			
@@ -486,8 +480,7 @@ Function videoCanDirectPlay(mediaSource, audioStream, videoStream, subtitleStrea
         return false
     end if
 
-	' TODO: Add this information to server output, along with RefFrames
-    if (videoStream <> invalid AND videoStream.IsAnamorphic = true) AND NOT firstOf(getGlobalVar("playsAnamorphic"), false) then
+	if (videoStream <> invalid AND videoStream.IsAnamorphic = true) AND NOT firstOf(getGlobalVar("playsAnamorphic"), false) then
         Debug("videoCanDirectPlay: anamorphic videos not supported")
         return false
     end if
@@ -504,7 +497,7 @@ Function videoCanDirectPlay(mediaSource, audioStream, videoStream, subtitleStrea
             return false
         end if
 
-        if videoStream <> invalid and videoStream.RefFrames <> invalid AND firstOf(videoStream.RefFrames, 0) > firstOf(GetGlobalAA("maxRefFrames"), 0) then
+        if videoStream <> invalid and firstOf(videoStream.RefFrames, 0) > firstOf(getGlobalVar("maxRefFrames"), 0) then
             ' Not only can we not Direct Play, but we want to make sure we
             ' don't try to Direct Stream.
             'mediaItem.forceTranscode = true
@@ -577,8 +570,8 @@ Function videoCanDirectPlay(mediaSource, audioStream, videoStream, subtitleStrea
             return false
         end if
 
-        if videoStream <> invalid and videoStream.RefFrames <> invalid then
-            if firstOf(videoStream.RefFrames, 0) > firstOf(GetGlobalAA("maxRefFrames"), 0) then
+        if videoStream <> invalid then
+            if firstOf(videoStream.RefFrames, 0) > firstOf(getGlobalVar("maxRefFrames"), 0) then
                 ' Not only can we not Direct Play, but we want to make sure we
                 ' don't try to Direct Stream.
                 'mediaItem.forceTranscode = true
