@@ -1232,7 +1232,7 @@ Function vcCreateScreenForItem(context, contextIndex, breadcrumbs, show=true) As
 		screen = createMovieLibraryScreen(m, itemId)
         screenName = "MovieLibrary"
 
-    else if item.MediaType = "Video" or item.MediaType = "Game" or item.MediaType = "Book" or contentType = "ItemPerson" then
+    else if item.MediaType = "Video" or item.MediaType = "Game" or item.MediaType = "Book" or contentType = "ItemPerson" or contentType = "Person" then
 		Debug ("Calling createVideoSpringboardScreen")
 		screen = createVideoSpringboardScreen(context, contextIndex, m)
 		screenName = "VideoSpringboardScreen" + itemId
@@ -1465,7 +1465,7 @@ Function GetContextForPlayback(context, contextIndex) as Object
     if itemType = "MusicArtist" then
 	
 		' URL
-		url = GetServerBaseUrl() + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?IncludeItemTypes=Audio&Recursive=true&SortBy=SortName&Artists=" + HttpEncode(item.Name) + "&ImageTypeLimit=1"
+		url = GetServerBaseUrl() + "/Users/" + HttpEncode(getGlobalVar("user").Id) + "/Items?IncludeItemTypes=Audio&Recursive=true&SortBy=SortName&ArtistIds=" + HttpEncode(item.Id) + "&ImageTypeLimit=1"
 
 		' Prepare Request
 		request = HttpRequest(url)
